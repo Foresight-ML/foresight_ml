@@ -19,6 +19,8 @@ dependencies = [
     "pre-commit>=4.5.1",
     "dvc>=3.66.1",
     "numpy>=2.4.2",
+    "scikit-learn>=1.4.0",
+    "imbalanced-learn>=0.12.0",
 ]
 
 [build-system]
@@ -71,9 +73,7 @@ exclude = [
 [tool.ruff.lint.isort]
 force-single-line = false
 
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D"]
-"src/feature_engineering/pipelines/*.py" = ["D"]
+
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"  # Use Google-style docstrings
