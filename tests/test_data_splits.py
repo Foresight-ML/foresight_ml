@@ -1,13 +1,11 @@
 """Tests for data splitting and class imbalance handling.
 
-Uses sample_data.csv as fixture — no BigQuery or GCS access required.
-Since sample data covers 2009–2013, tests use narrower split boundaries:
-  train: 2010–2011, val: 2012, test: 2013
+Uses a generated local CSV fixture (no BigQuery or GCS access required).
+The synthetic sample covers 2009–2013, so tests use narrower split boundaries:
+    train: 2010–2011, val: 2012, test: 2013
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -33,18 +31,97 @@ from src.data.split import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-SAMPLE_CSV = Path(__file__).resolve().parent.parent / "sample_data.csv"
-
 # Split boundaries for sample data (2009-2013)
 SAMPLE_TRAIN_YEARS = (2010, 2011)
 SAMPLE_VAL_YEARS = (2012, 2012)
 SAMPLE_TEST_YEARS = (2013, 2013)
 
 
+def _build_sample_df() -> pd.DataFrame:
+    """Build a deterministic in-memory sample dataset for split tests."""
+    rng = np.random.default_rng(42)
+    rows: list[dict[str, object]] = []
+
+    # Keep keys disjoint across (firm_id, fiscal_year, fiscal_period)
+    periods = ["Q1", "Q2", "Q3", "Q4"]
+
+    # 2009 rows (to verify exclusion behavior)
+    for idx in range(8):
+        period = periods[idx % 4]
+        rows.append(
+            {
+                "firm_id": f"F{idx:03d}",
+                "fiscal_year": 2009,
+                "fiscal_period": period,
+                "filed_date": f"2009-{(idx % 12) + 1:02d}-15",
+                "company_size_bucket": "small",
+                "sector_proxy": "services_other",
+                "feature_a": float(rng.normal(0.5, 0.15)),
+                "feature_b": float(rng.normal(1.0, 0.25)),
+                "feature_c": float(rng.normal(0.2, 0.05)),
+                "distress_label": int(idx % 2),
+            }
+        )
+
+    # Train years 2010-2011 with imbalanced labels (enough minority for SMOTE)
+    for year in (2010, 2011):
+        for idx in range(24):
+            period = periods[idx % 4]
+            distressed = 1 if idx in {2, 5, 9, 14, 18, 22} else 0
+            size = "small" if idx < 10 else ("mid" if idx < 18 else "large")
+            sector = (
+                "tech_pharma"
+                if idx < 9
+                else ("manufacturing_retail" if idx < 17 else "financial_capital_intensive")
+            )
+            rows.append(
+                {
+                    "firm_id": f"T{year}{idx:03d}",
+                    "fiscal_year": year,
+                    "fiscal_period": period,
+                    "filed_date": f"{year}-{(idx % 12) + 1:02d}-15",
+                    "company_size_bucket": size,
+                    "sector_proxy": sector,
+                    "feature_a": float(rng.normal(1.0 + distressed, 0.2)),
+                    "feature_b": float(rng.normal(2.0 + distressed, 0.35)),
+                    "feature_c": float(rng.normal(0.4 + 0.1 * distressed, 0.08)),
+                    "distress_label": distressed,
+                }
+            )
+
+    # Validation and test years
+    for year in (2012, 2013):
+        for idx in range(16):
+            period = periods[idx % 4]
+            distressed = 1 if idx in {1, 7, 12} else 0
+            size = "mid" if idx < 8 else "large"
+            sector = "tech_pharma" if idx < 10 else "services_other"
+            rows.append(
+                {
+                    "firm_id": f"E{year}{idx:03d}",
+                    "fiscal_year": year,
+                    "fiscal_period": period,
+                    "filed_date": f"{year}-{(idx % 12) + 1:02d}-15",
+                    "company_size_bucket": size,
+                    "sector_proxy": sector,
+                    "feature_a": float(rng.normal(1.2 + distressed, 0.25)),
+                    "feature_b": float(rng.normal(2.2 + distressed, 0.4)),
+                    "feature_c": float(rng.normal(0.45 + 0.1 * distressed, 0.08)),
+                    "distress_label": distressed,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture(scope="module")
-def full_df() -> pd.DataFrame:
-    """Load the full sample dataset once for all tests."""
-    return load_features(SAMPLE_CSV)
+def full_df(tmp_path_factory: pytest.TempPathFactory) -> pd.DataFrame:
+    """Load generated sample dataset through CSV path (tests load_features)."""
+    df = _build_sample_df()
+    data_dir = tmp_path_factory.mktemp("split_data")
+    csv_path = data_dir / "sample_data.csv"
+    df.to_csv(csv_path, index=False)
+    return load_features(csv_path)
 
 
 @pytest.fixture(scope="module")
