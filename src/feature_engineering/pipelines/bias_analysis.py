@@ -360,25 +360,25 @@ def compute_model_fairness(
         if valid.empty or valid["sample_count"].sum() == 0:
             continue
 
-        overall_value = float(
-            np.average(valid[metric], weights=valid["sample_count"])
-        )
+        overall_value = float(np.average(valid[metric], weights=valid["sample_count"]))
 
         for _, row in valid.iterrows():
             slice_value = float(row[metric])
             gap = overall_value - slice_value
             is_alert = gap > alert_threshold
 
-            rows.append({
-                "dimension": row["dimension"],
-                "slice": row["slice"],
-                "metric": metric,
-                "slice_value": round(slice_value, 4),
-                "overall_value": round(overall_value, 4),
-                "gap": round(gap, 4),
-                "bias_alert": is_alert,
-                "sample_count": int(row["sample_count"]),
-            })
+            rows.append(
+                {
+                    "dimension": row["dimension"],
+                    "slice": row["slice"],
+                    "metric": metric,
+                    "slice_value": round(slice_value, 4),
+                    "overall_value": round(overall_value, 4),
+                    "gap": round(gap, 4),
+                    "bias_alert": is_alert,
+                    "sample_count": int(row["sample_count"]),
+                }
+            )
 
             if is_alert:
                 logger.warning(
@@ -432,16 +432,18 @@ def suggest_threshold_adjustments(
         suggested = round(base_threshold - (adjustment_step * n_steps), 3)
         suggested = max(0.1, suggested)  # floor at 0.1
 
-        suggestions.append({
-            "dimension": row["dimension"],
-            "slice": row["slice"],
-            "current_threshold": base_threshold,
-            "suggested_threshold": suggested,
-            "reason": (
-                f"recall_at_5pct gap of {row['gap']:.4f} "
-                f"exceeds {BIAS_ALERT_THRESHOLD:.0%} threshold"
-            ),
-        })
+        suggestions.append(
+            {
+                "dimension": row["dimension"],
+                "slice": row["slice"],
+                "current_threshold": base_threshold,
+                "suggested_threshold": suggested,
+                "reason": (
+                    f"recall_at_5pct gap of {row['gap']:.4f} "
+                    f"exceeds {BIAS_ALERT_THRESHOLD:.0%} threshold"
+                ),
+            }
+        )
 
     return pd.DataFrame(suggestions)
 
@@ -517,8 +519,13 @@ def generate_bias_report_md(
         lines.append("### Per-Slice Performance vs Overall")
         lines.append("")
         display_cols = [
-            "dimension", "slice", "metric",
-            "slice_value", "overall_value", "gap", "bias_alert",
+            "dimension",
+            "slice",
+            "metric",
+            "slice_value",
+            "overall_value",
+            "gap",
+            "bias_alert",
         ]
         available_cols = [c for c in display_cols if c in model_fairness_df.columns]
         lines.append(model_fairness_df[available_cols].to_markdown(index=False))

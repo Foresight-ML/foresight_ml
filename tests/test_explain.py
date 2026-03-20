@@ -15,13 +15,17 @@ Covers:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
+from src.feature_engineering.pipelines.bias_analysis import (
+    compute_model_fairness,
+    generate_bias_report_md,
+    suggest_threshold_adjustments,
+)
 from src.models.explain import (
     build_top_features_table,
     compute_shap_values,
@@ -30,12 +34,6 @@ from src.models.explain import (
     save_feature_importance_bar_plot,
     save_shap_parquet,
 )
-from src.feature_engineering.pipelines.bias_analysis import (
-    compute_model_fairness,
-    generate_bias_report_md,
-    suggest_threshold_adjustments,
-)
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -49,15 +47,11 @@ def synthetic_model_and_data():
 
     feature_names = [f"feat_{i}" for i in range(n_features)]
 
-    X_train = pd.DataFrame(
-        np.random.randn(n_train, n_features), columns=feature_names
-    )
+    X_train = pd.DataFrame(np.random.randn(n_train, n_features), columns=feature_names)
     # Simple rule: distress if feat_0 > 0.5 and feat_1 < -0.3
     y_train = ((X_train["feat_0"] > 0.5) & (X_train["feat_1"] < -0.3)).astype(int)
 
-    X_test = pd.DataFrame(
-        np.random.randn(n_test, n_features), columns=feature_names
-    )
+    X_test = pd.DataFrame(np.random.randn(n_test, n_features), columns=feature_names)
     y_test = ((X_test["feat_0"] > 0.5) & (X_test["feat_1"] < -0.3)).astype(int)
 
     model = XGBClassifier(
@@ -82,24 +76,74 @@ def synthetic_model_and_data():
 @pytest.fixture
 def sample_slice_performance():
     """Mock slice performance table matching evaluate.py output format."""
-    return pd.DataFrame([
-        {"dimension": "company_size", "slice": "small", "sample_count": 100,
-         "roc_auc": 0.72, "recall_at_5pct": 0.60, "precision_at_5pct": 0.40},
-        {"dimension": "company_size", "slice": "mid", "sample_count": 200,
-         "roc_auc": 0.85, "recall_at_5pct": 0.80, "precision_at_5pct": 0.55},
-        {"dimension": "company_size", "slice": "large", "sample_count": 150,
-         "roc_auc": 0.88, "recall_at_5pct": 0.82, "precision_at_5pct": 0.60},
-        {"dimension": "company_size", "slice": "mega", "sample_count": 50,
-         "roc_auc": 0.90, "recall_at_5pct": 0.85, "precision_at_5pct": 0.65},
-        {"dimension": "sector_proxy", "slice": "tech_pharma", "sample_count": 120,
-         "roc_auc": 0.86, "recall_at_5pct": 0.78, "precision_at_5pct": 0.50},
-        {"dimension": "sector_proxy", "slice": "financial", "sample_count": 130,
-         "roc_auc": 0.65, "recall_at_5pct": 0.45, "precision_at_5pct": 0.30},
-        {"dimension": "sector_proxy", "slice": "manufacturing_retail", "sample_count": 150,
-         "roc_auc": 0.84, "recall_at_5pct": 0.76, "precision_at_5pct": 0.48},
-        {"dimension": "sector_proxy", "slice": "services", "sample_count": 100,
-         "roc_auc": 0.82, "recall_at_5pct": 0.74, "precision_at_5pct": 0.45},
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "dimension": "company_size",
+                "slice": "small",
+                "sample_count": 100,
+                "roc_auc": 0.72,
+                "recall_at_5pct": 0.60,
+                "precision_at_5pct": 0.40,
+            },
+            {
+                "dimension": "company_size",
+                "slice": "mid",
+                "sample_count": 200,
+                "roc_auc": 0.85,
+                "recall_at_5pct": 0.80,
+                "precision_at_5pct": 0.55,
+            },
+            {
+                "dimension": "company_size",
+                "slice": "large",
+                "sample_count": 150,
+                "roc_auc": 0.88,
+                "recall_at_5pct": 0.82,
+                "precision_at_5pct": 0.60,
+            },
+            {
+                "dimension": "company_size",
+                "slice": "mega",
+                "sample_count": 50,
+                "roc_auc": 0.90,
+                "recall_at_5pct": 0.85,
+                "precision_at_5pct": 0.65,
+            },
+            {
+                "dimension": "sector_proxy",
+                "slice": "tech_pharma",
+                "sample_count": 120,
+                "roc_auc": 0.86,
+                "recall_at_5pct": 0.78,
+                "precision_at_5pct": 0.50,
+            },
+            {
+                "dimension": "sector_proxy",
+                "slice": "financial",
+                "sample_count": 130,
+                "roc_auc": 0.65,
+                "recall_at_5pct": 0.45,
+                "precision_at_5pct": 0.30,
+            },
+            {
+                "dimension": "sector_proxy",
+                "slice": "manufacturing_retail",
+                "sample_count": 150,
+                "roc_auc": 0.84,
+                "recall_at_5pct": 0.76,
+                "precision_at_5pct": 0.48,
+            },
+            {
+                "dimension": "sector_proxy",
+                "slice": "services",
+                "sample_count": 100,
+                "roc_auc": 0.82,
+                "recall_at_5pct": 0.74,
+                "precision_at_5pct": 0.45,
+            },
+        ]
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -208,10 +252,7 @@ class TestDeriveTopFeaturesJson:
         shap_vals = compute_shap_values(model, X_test)
         result = derive_top_features_json(shap_vals, feature_names, top_k=2)
         first = json.loads(result[0])
-        assert all(
-            {"feature", "shap_value", "rank"} == set(entry.keys())
-            for entry in first
-        )
+        assert all({"feature", "shap_value", "rank"} == set(entry.keys()) for entry in first)
 
     def test_ranks_are_sequential(self, synthetic_model_and_data):
         model, X_test, _, feature_names = synthetic_model_and_data
@@ -268,8 +309,16 @@ class TestComputeModelFairness:
 
     def test_has_expected_columns(self, sample_slice_performance):
         result = compute_model_fairness(sample_slice_performance)
-        expected = {"dimension", "slice", "metric", "slice_value",
-                    "overall_value", "gap", "bias_alert", "sample_count"}
+        expected = {
+            "dimension",
+            "slice",
+            "metric",
+            "slice_value",
+            "overall_value",
+            "gap",
+            "bias_alert",
+            "sample_count",
+        }
         assert expected.issubset(set(result.columns))
 
     def test_detects_bias_alert(self, sample_slice_performance):
@@ -288,9 +337,7 @@ class TestComputeModelFairness:
 
     def test_custom_threshold(self, sample_slice_performance):
         """With a very large threshold, no alerts should fire."""
-        result = compute_model_fairness(
-            sample_slice_performance, alert_threshold=0.99
-        )
+        result = compute_model_fairness(sample_slice_performance, alert_threshold=0.99)
         assert not result["bias_alert"].any()
 
     def test_empty_input(self):
@@ -311,9 +358,7 @@ class TestSuggestThresholdAdjustments:
             assert all(suggestions["suggested_threshold"] < 0.5)
 
     def test_no_suggestions_when_no_alerts(self, sample_slice_performance):
-        fairness = compute_model_fairness(
-            sample_slice_performance, alert_threshold=0.99
-        )
+        fairness = compute_model_fairness(sample_slice_performance, alert_threshold=0.99)
         suggestions = suggest_threshold_adjustments(fairness)
         assert suggestions.empty
 
@@ -333,30 +378,26 @@ class TestSuggestThresholdAdjustments:
 
 class TestGenerateBiasReportMd:
     def test_report_is_string(self, sample_slice_performance):
-        feature_report = pd.DataFrame([
-            {"dimension": "company_size", "slice": "small", "sample_count": 100}
-        ])
+        feature_report = pd.DataFrame(
+            [{"dimension": "company_size", "slice": "small", "sample_count": 100}]
+        )
         details = {"alerts": [], "drift_matrices": {}, "slices": {}}
         fairness = compute_model_fairness(sample_slice_performance)
         suggestions = suggest_threshold_adjustments(fairness)
 
-        report = generate_bias_report_md(
-            feature_report, details, fairness, suggestions
-        )
+        report = generate_bias_report_md(feature_report, details, fairness, suggestions)
         assert isinstance(report, str)
         assert "# Bias Report" in report
 
     def test_report_contains_sections(self, sample_slice_performance):
-        feature_report = pd.DataFrame([
-            {"dimension": "company_size", "slice": "small", "sample_count": 100}
-        ])
+        feature_report = pd.DataFrame(
+            [{"dimension": "company_size", "slice": "small", "sample_count": 100}]
+        )
         details = {"alerts": ["⚠ HIGH DRIFT: test alert"], "drift_matrices": {}, "slices": {}}
         fairness = compute_model_fairness(sample_slice_performance)
         suggestions = suggest_threshold_adjustments(fairness)
 
-        report = generate_bias_report_md(
-            feature_report, details, fairness, suggestions
-        )
+        report = generate_bias_report_md(feature_report, details, fairness, suggestions)
         assert "Feature-Level Drift" in report
         assert "Model-Level Fairness" in report
         assert "Mitigation" in report

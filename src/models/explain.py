@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
+
 matplotlib.use("Agg")  # non-interactive backend for CI/server environments
 
 import matplotlib.pyplot as plt
@@ -136,9 +137,7 @@ def _load_xgb_model(model_uri: str) -> XGBClassifier:
     return model
 
 
-def _align_feature_frame(
-    features: pd.DataFrame, trained_columns: list[str]
-) -> pd.DataFrame:
+def _align_feature_frame(features: pd.DataFrame, trained_columns: list[str]) -> pd.DataFrame:
     """Align a feature frame to the trained model's feature column set."""
     out = features.copy()
     for col in out.columns:
@@ -206,10 +205,12 @@ def save_feature_importance_bar_plot(
         Path to the saved plot.
     """
     mean_abs = np.abs(shap_values).mean(axis=0)
-    importance_df = pd.DataFrame({
-        "feature": feature_names,
-        "mean_abs_shap": mean_abs,
-    }).sort_values("mean_abs_shap", ascending=False)
+    importance_df = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "mean_abs_shap": mean_abs,
+        }
+    ).sort_values("mean_abs_shap", ascending=False)
 
     top = importance_df.head(top_n)
 
@@ -285,21 +286,21 @@ def build_top_features_table(
     mean_raw = shap_values.mean(axis=0)
     std_vals = shap_values.std(axis=0)
 
-    summary = pd.DataFrame({
-        "feature": feature_names,
-        "mean_abs_shap": mean_abs,
-        "mean_shap": mean_raw,
-        "std_shap": std_vals,
-    }).sort_values("mean_abs_shap", ascending=False)
+    summary = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "mean_abs_shap": mean_abs,
+            "mean_shap": mean_raw,
+            "std_shap": std_vals,
+        }
+    ).sort_values("mean_abs_shap", ascending=False)
 
     summary = summary.head(top_n).reset_index(drop=True)
     summary.index = summary.index + 1
     summary.index.name = "rank"
 
     # Direction: positive mean => increases distress risk, negative => protective
-    summary["direction"] = np.where(
-        summary["mean_shap"] > 0, "increases_risk", "protective"
-    )
+    summary["direction"] = np.where(summary["mean_shap"] > 0, "increases_risk", "protective")
 
     return summary
 
@@ -337,11 +338,13 @@ def derive_top_features_json(
 
         contributors = []
         for rank, idx in enumerate(top_indices, start=1):
-            contributors.append({
-                "feature": feature_names[idx],
-                "shap_value": round(float(row_vals[idx]), 6),
-                "rank": rank,
-            })
+            contributors.append(
+                {
+                    "feature": feature_names[idx],
+                    "shap_value": round(float(row_vals[idx]), 6),
+                    "rank": rank,
+                }
+            )
 
         result.append(json.dumps(contributors))
 
