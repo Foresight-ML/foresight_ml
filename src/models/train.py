@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import yaml
 from pandas.api.types import is_datetime64_any_dtype
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
@@ -44,7 +44,6 @@ class SplitData:
 
 def _gcs_client():
     """Create a Google Cloud Storage client."""
-
     from google.cloud import storage
 
     return storage.Client()
@@ -52,7 +51,6 @@ def _gcs_client():
 
 def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
     """Parse gs://bucket/path into (bucket, path)."""
-
     if not gcs_uri.startswith("gs://"):
         raise ValueError(f"Expected gs:// URI, got {gcs_uri}")
     stripped = gcs_uri.replace("gs://", "", 1)
@@ -64,7 +62,6 @@ def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
 
 def _download_gcs_to_local(gcs_uri: str, local_path: Path) -> None:
     """Download a GCS object to a local path."""
-
     bucket_name, blob_path = _parse_gcs_uri(gcs_uri)
     client = _gcs_client()
     bucket = client.bucket(bucket_name)
@@ -75,7 +72,6 @@ def _download_gcs_to_local(gcs_uri: str, local_path: Path) -> None:
 
 def _upload_local_to_gcs(local_path: Path, gcs_uri: str) -> None:
     """Upload a local file to a GCS object path."""
-
     bucket_name, blob_path = _parse_gcs_uri(gcs_uri)
     client = _gcs_client()
     bucket = client.bucket(bucket_name)
@@ -85,13 +81,11 @@ def _upload_local_to_gcs(local_path: Path, gcs_uri: str) -> None:
 
 def _load_split(gcs_uri: str) -> pd.DataFrame:
     """Load a parquet split from GCS."""
-
     return pd.read_parquet(gcs_uri)
 
 
 def load_splits(train_uri: str, val_uri: str, test_uri: str) -> SplitData:
     """Load train/val/test splits from GCS."""
-
     return SplitData(
         train=_load_split(train_uri),
         val=_load_split(val_uri),
@@ -101,7 +95,6 @@ def load_splits(train_uri: str, val_uri: str, test_uri: str) -> SplitData:
 
 def load_class_weight(gcs_uri: str | None, train_df: pd.DataFrame | None) -> float:
     """Load scale_pos_weight from GCS or compute from training labels."""
-
     if gcs_uri:
         try:
             tmp_path = Path("/tmp/scale_pos_weight.json")
@@ -110,7 +103,7 @@ def load_class_weight(gcs_uri: str | None, train_df: pd.DataFrame | None) -> flo
                 data = json.load(f)
             if isinstance(data, dict) and "scale_pos_weight" in data:
                 return float(data["scale_pos_weight"])
-            if isinstance(data, (int, float)):
+            if isinstance(data, int | float):
                 return float(data)
         except Exception:
             pass
@@ -127,7 +120,6 @@ def load_class_weight(gcs_uri: str | None, train_df: pd.DataFrame | None) -> flo
 
 def load_scaler(gcs_uri: str) -> Path:
     """Download the fitted scaler pipeline from GCS."""
-
     local_path = Path("/tmp/scaler_pipeline.pkl")
     _download_gcs_to_local(gcs_uri, local_path)
     return local_path
@@ -135,7 +127,6 @@ def load_scaler(gcs_uri: str) -> Path:
 
 def _to_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Convert a dataframe to all-numeric features."""
-
     out = df.copy()
     for col in out.columns:
         if is_datetime64_any_dtype(out[col]):
@@ -146,7 +137,6 @@ def _to_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 def get_features_and_labels(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """Split dataframe into features and labels."""
-
     if LABEL_COL not in df.columns:
         raise ValueError(f"Missing label column: {LABEL_COL}")
     labels = df[LABEL_COL]
@@ -158,7 +148,6 @@ def prepare_splits(
     train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     """Prepare aligned numeric feature matrices across splits."""
-
     x_train_raw, y_train = get_features_and_labels(train_df)
     x_val_raw, y_val = get_features_and_labels(val_df)
     x_test_raw, y_test = get_features_and_labels(test_df)
@@ -179,7 +168,6 @@ def train_baseline(
     scale_pos_weight: float,
 ) -> tuple[XGBClassifier, float]:
     """Train a baseline XGBoost model and return validation ROC-AUC."""
-
     x_train, y_train, x_val, y_val, _, _ = prepare_splits(train_df, val_df, val_df)
 
     model = XGBClassifier(
@@ -203,7 +191,6 @@ def train_baseline(
 
 def load_search_space(config_path: Path) -> dict[str, list[Any]]:
     """Load Optuna search space from YAML."""
-
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
@@ -213,7 +200,6 @@ def load_search_space(config_path: Path) -> dict[str, list[Any]]:
 
 def _get_mlflow():
     """Import mlflow lazily to avoid test-time dependency errors."""
-
     import mlflow
 
     return mlflow
@@ -227,7 +213,6 @@ def optuna_objective(
     search_space: dict[str, list[Any]],
 ) -> float:
     """Optuna objective that maximizes validation ROC-AUC."""
-
     params = {
         "learning_rate": trial.suggest_float(
             "learning_rate",
@@ -236,9 +221,7 @@ def optuna_objective(
             log=True,
         ),
         "max_depth": trial.suggest_categorical("max_depth", search_space["max_depth"]),
-        "n_estimators": trial.suggest_categorical(
-            "n_estimators", search_space["n_estimators"]
-        ),
+        "n_estimators": trial.suggest_categorical("n_estimators", search_space["n_estimators"]),
         "subsample": trial.suggest_categorical("subsample", search_space["subsample"]),
         "colsample_bytree": trial.suggest_categorical(
             "colsample_bytree", search_space["colsample_bytree"]
@@ -266,8 +249,8 @@ def optuna_objective(
 
     mlflow = _get_mlflow()
     mlflow.log_params(params)
-    mlflow.log_metric("val_roc_auc", roc)
-    mlflow.log_metric("train_time_sec", duration)
+    mlflow.log_metric("val_roc_auc", float(roc))
+    mlflow.log_metric("train_time_sec", float(duration))
 
     return float(roc)
 
@@ -280,7 +263,6 @@ def run_optuna_tuning(
     n_trials: int,
 ) -> Any:
     """Run Optuna tuning and return the study."""
-
     import optuna
 
     study = optuna.create_study(direction="maximize")
@@ -297,7 +279,6 @@ def run_optuna_tuning(
 
 def save_sensitivity_plot(study: Any, out_path: Path) -> None:
     """Save ROC-AUC sensitivity plots for top hyperparameters."""
-
     import optuna
 
     importances = optuna.importance.get_param_importances(study)
@@ -311,7 +292,7 @@ def save_sensitivity_plot(study: Any, out_path: Path) -> None:
     if len(top_params) == 1:
         axes = [axes]
 
-    for ax, param in zip(axes, top_params):
+    for ax, param in zip(axes, top_params, strict=False):
         x = trials_df[f"params_{param}"]
         y = trials_df["value"]
         ax.scatter(x, y, alpha=0.7)
@@ -327,7 +308,6 @@ def save_sensitivity_plot(study: Any, out_path: Path) -> None:
 
 def main() -> None:
     """Run baseline training, Optuna tuning, and artifact upload."""
-
     train_uri = os.getenv("TRAIN_URI", DEFAULT_TRAIN_URI)
     val_uri = os.getenv("VAL_URI", DEFAULT_VAL_URI)
     test_uri = os.getenv("TEST_URI", DEFAULT_TEST_URI)
@@ -353,7 +333,9 @@ def main() -> None:
     # Optuna tuning
     n_trials = int(os.getenv("OPTUNA_TRIALS", "25"))
     with mlflow.start_run(run_name="optuna_tuning"):
-        study = run_optuna_tuning(splits.train, splits.val, scale_pos_weight, search_space, n_trials)
+        study = run_optuna_tuning(
+            splits.train, splits.val, scale_pos_weight, search_space, n_trials
+        )
 
     best_params = study.best_params
 
