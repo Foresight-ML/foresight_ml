@@ -1,3 +1,5 @@
+"""Executes batch inference using the Production model and attaches SHAP explanations."""
+
 import pandas as pd
 import mlflow
 import numpy as np

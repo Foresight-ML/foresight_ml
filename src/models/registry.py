@@ -1,3 +1,5 @@
+"""Handles the evaluation, registration, and promotion of trained models via MLflow."""
+
 import mlflow
 import logging
 from mlflow.tracking import MlflowClient
