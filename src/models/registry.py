@@ -8,7 +8,7 @@ import gcsfs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def evaluate_and_register_model(run_id, test_roc_auc, recall_critically_low, model_name="foresight_xgboost", version_str="1.0"):
+def evaluate_and_register_model(run_id: str, test_roc_auc: float, recall_critically_low: bool, model_name: str = "foresight_xgboost", version_str: str = "1.0") -> bool:
     """
     Evaluates model metrics, registers to MLflow, and handles promotion.
     """
