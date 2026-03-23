@@ -14,6 +14,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, cast
 import pandas as pd
 
 from src.utils.logging import get_logger
@@ -25,7 +26,7 @@ GCS_BUCKET = os.environ.get("GCS_BUCKET", "financial-distress-data")
 MODEL_REPORT_GCS_PATH = "models/optuna_results.json"
 
 
-def _load_training_report() -> dict:
+def _load_training_report() -> dict[str, Any]:
     """Download optuna_results.json from GCS and return as dict."""
     from google.cloud import storage
 
@@ -33,7 +34,7 @@ def _load_training_report() -> dict:
     tmp = Path("/tmp/optuna_results.json")
     client.bucket(GCS_BUCKET).blob(MODEL_REPORT_GCS_PATH).download_to_filename(str(tmp))
     with open(tmp) as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def _get_latest_mlflow_run_id() -> tuple[str, float]:
