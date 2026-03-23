@@ -1,5 +1,8 @@
 name: CD — Model Training Pipeline
 
+# CD deploys the image → Airflow DAG executes it on schedule.
+# This workflow only triggers when training-related code changes.
+
 on:
   push:
     branches:
@@ -52,6 +55,7 @@ jobs:
       - name: Push training image
         run: docker push $IMAGE_URI
 
+      # Create job on first run, update image on subsequent runs
       - name: Deploy training job
         run: |
           if gcloud run jobs describe foresight-training --region $REGION 2>/dev/null; then
@@ -72,6 +76,6 @@ jobs:
               --set-env-vars=MLFLOW_EXPERIMENT_NAME=foresight-training \
               --set-env-vars=OPTUNA_TRIALS=25 \
               --set-env-vars=LABEL_COL=distress_label \
-              --set-secrets=MLFLOW_TRACKING_URI=mlflow-tracking-uri:latest \
+              --set-env-vars=MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }} \
               --project=$PROJECT_ID
           fi
