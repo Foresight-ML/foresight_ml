@@ -61,7 +61,9 @@ jobs:
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
-        run: uv run pytest tests/ --cov=src --cov-report=xml --cov-fail-under=70
+        run: |
+          uv pip install pytest-cov
+          uv run pytest tests/ --cov=src --cov-report=xml --cov-fail-under=70
 
       - name: Security scan (Bandit)
         run: uv run bandit -r src/ -ll --exit-zero
