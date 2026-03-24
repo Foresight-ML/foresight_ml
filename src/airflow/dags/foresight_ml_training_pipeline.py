@@ -128,7 +128,7 @@ with DAG(
     start_date=datetime(2026, 1, 1),
     schedule="@weekly",
     catchup=False,
-    max_active_runs=1,
+    max_active_runs=3,
     tags=["foresight-ml", "training", "xgboost"],
     default_args={
         "retries": 1,
