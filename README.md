@@ -148,7 +148,7 @@ Fetches quarterly XBRL financial statement data for companies in the configured 
 
 **Company universe:** Loaded from `reference/companies.csv` in GCS. This file defines which companies are ingested.
 
-> **⚠️ Demo mode:** The current pipeline processes `companies_df.head(5)` — the first 5 companies from the reference file. This is an intentional runtime guardrail for submission and development. To process the full company universe, remove the `head(5)` line in `sec_xbrl_increment_job.py`.
+> **Demo mode:** The current pipeline processes `companies_df.head(5)` — the first 5 companies from the reference file. This is an intentional runtime guardrail for submission and development. To process the full company universe, remove the `head(5)` line in `sec_xbrl_increment_job.py`.
 
 **Incremental strategy (amendment-safe):**
 1. For each company, fetch the full XBRL extract from SEC EDGAR
@@ -331,7 +331,7 @@ Every Optuna trial is logged to MLflow with its hyperparameters, validation ROC-
 
 **Model selection rationale:** After tuning, the model is retrained on the combined train+val split using the best hyperparameters, then evaluated once on the held-out test set. This prevents test set leakage during hyperparameter selection.
 
-> **📌 Person 2 — add here:** Final best hyperparameter values found by Optuna, sensitivity plot description (which top-3 params had most impact on ROC-AUC), and any notes on convergence across trials.
+> **📌 SANKALP - add here:** Final best hyperparameter values found by Optuna, sensitivity plot description (which top-3 params had most impact on ROC-AUC), and any notes on convergence across trials.
 
 ### Evaluation (`src/models/evaluate.py`)
 
@@ -349,7 +349,7 @@ Evaluated on held-out test set (2022–2023):
 
 Per-slice evaluation reuses bias analysis slice definitions — metrics computed across company size, sector, time period, and macro regime and logged as a full table to MLflow.
 
-> **📌 Person 3 — add here:** Screenshot or description of the MLflow run comparison from `model_experiments.ipynb` showing how the final model was selected. Include ROC curve image if available. Add the exact threshold value selected and the reasoning.
+> **📌 BRYAN - add here:** Screenshot or description of the MLflow run comparison from `model_experiments.ipynb` showing how the final model was selected. Include ROC curve image if available. Add the exact threshold value selected and the reasoning.
 
 ### SHAP Explainability (`src/models/explain.py`)
 
@@ -368,7 +368,7 @@ Per-slice evaluation reuses bias analysis slice definitions — metrics computed
 - Pushes versioned artifacts to GCS at `models/v{version}/xgb_model.pkl` and `models/v{version}/scaler_pipeline.pkl`
 - Current registered model: `foresight_xgboost` Version 7, Stage: Production
 
-> **📌 Person 5 — add here:** GCS versioned path for the current production model. Confirm current Production version number and its test_roc_auc. Add batch inference output path (`inference/scores_v{version}/scores.parquet`) and describe the confidence interval approach used in predict.py.
+> **📌 NANDANA - add here:** GCS versioned path for the current production model. Confirm current Production version number and its test_roc_auc. Add batch inference output path (`inference/scores_v{version}/scores.parquet`) and describe the confidence interval approach used in predict.py.
 
 ### Quality Gate (`src/main_train.py`)
 
@@ -568,7 +568,7 @@ Per-slice model metrics (ROC-AUC, Recall@K) computed across the same slice defin
 - Time-based train/val/test splitting to prevent temporal leakage — the most critical form of leakage for financial time-series data
 - Stratified splitting by `company_size_bucket` and `sector_proxy` to ensure all subgroups are represented in every split
 
-> **📌 Person 4 — add here:** Specific slices where bias alerts were triggered (PSI > 0.25 or model performance drop > 10pp). Describe which mitigation was applied per slice and the resulting performance change. This is the most important section for graders reviewing bias mitigation quality.
+> **📌 HARSHIT - add here:** Specific slices where bias alerts were triggered (PSI > 0.25 or model performance drop > 10pp). Describe which mitigation was applied per slice and the resulting performance change. This is the most important section for graders reviewing bias mitigation quality.
 
 ---
 
