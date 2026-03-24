@@ -364,11 +364,6 @@ After 25 Optuna trials, the best-performing configuration was:
 - After hyperparameter selection, the model was retrained on the combined train + validation split and evaluated once on the hold-out test set to avoid test-set leakage during model selection.
 
 
-**Convergence notes**
-- Optuna converged toward a stable high-performing region within the 25-trial search budget rather than showing major late-stage jumps.
-- The final best configuration favored conservative boosting, shallow trees,
-
-
 ### Evaluation (`src/models/evaluate.py`)
 
 `evaluate.py` runs held-out evaluation on 2022–2023 data and logs all outputs to MLflow.
