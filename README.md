@@ -18,6 +18,7 @@ End-to-end MLOps pipeline for predicting corporate financial distress 6–12 mon
 - [CI/CD Pipeline](#cicd-pipeline)
 - [DVC Data Versioning](#dvc-data-versioning)
 - [MLflow Experiment Tracking](#mlflow-experiment-tracking)
+- [Model Experiments Notebook](#model-experiments-notebook)
 - [Validation & Anomaly Detection](#validation--anomaly-detection)
 - [Bias Detection & Mitigation](#bias-detection--mitigation)
 - [Infrastructure](#infrastructure)
@@ -335,21 +336,35 @@ Every Optuna trial is logged to MLflow with its hyperparameters, validation ROC-
 
 ### Evaluation (`src/models/evaluate.py`)
 
-Evaluated on held-out test set (2022–2023):
+`evaluate.py` runs held-out evaluation on 2022–2023 data and logs all outputs to MLflow.
 
-| Metric | Value | Description |
-|---|---|---|
-| ROC-AUC | 0.98 | Primary metric — ability to rank distressed vs healthy firms |
-| Recall@K (top 5%) | 0.74 | Of all firms that actually distressed, how many were in our top-risk predictions |
-| Precision@K (top 5%) | logged in MLflow | Of top-risk predictions, how many actually distressed |
-| Brier Score | logged in MLflow | Calibration of probability estimates |
-| F1 at tuned threshold | logged in MLflow | Threshold tuned by maximizing F1 on validation set |
+**How it resolves artifacts:**
+- Loads model artifact from `MODEL_ARTIFACT_URI` (or passed `model_uri`) and supports GCS (`gs://...`) and local paths
+- Loads validation/test splits from `VAL_URI` and `TEST_URI`
+- Tunes threshold on validation set by maximizing F1, then evaluates on held-out test set
 
-> **Note on F1:** F1 at tuned threshold appears low due to the extreme class imbalance (2–5% distress rate). ROC-AUC and Recall@K are the appropriate metrics for this use case — they are robust to class imbalance and directly measure the ability to identify at-risk companies.
+**Metrics logged to MLflow:**
+- `test_roc_auc`
+- `test_precision_at_5pct`
+- `test_recall_at_5pct`
+- `test_brier_score`
+- `test_f1_at_tuned_threshold`
 
-Per-slice evaluation reuses bias analysis slice definitions — metrics computed across company size, sector, time period, and macro regime and logged as a full table to MLflow.
+**Artifacts logged to MLflow:**
+- ROC curve (`evaluation_plots/roc_curve.png`)
+- Precision-Recall curve (`evaluation_plots/precision_recall_curve.png`)
+- Confusion matrix (`evaluation_plots/confusion_matrix.png`)
+- Per-slice metrics table (`slice_metrics/slice_performance.csv` and `.json`)
+- Evaluation summary (`evaluation/evaluation_summary.json`)
 
-> **📌 BRYAN - add here:** Screenshot or description of the MLflow run comparison from `model_experiments.ipynb` showing how the final model was selected. Include ROC curve image if available. Add the exact threshold value selected and the reasoning.
+Per-slice evaluation reuses `bias_analysis.py` slices (company size, sector proxy, time period, macro regime) and logs a full slice-performance table.
+
+Local command:
+
+```bash
+source .env
+python -m src.models.evaluate
+```
 
 ### SHAP Explainability (`src/models/explain.py`)
 
@@ -502,6 +517,7 @@ make dvc-pull
 **Backend store:** Cloud SQL PostgreSQL
 **Artifact store:** `gs://financial-distress-data/mlflow/artifacts`
 **Experiment:** `foresight-training`
+**Tracking URI:** `https://foresight-mlflow-6ool3rlbea-uc.a.run.app`
 
 Each training run logs:
 - All Optuna trial hyperparameters and validation ROC-AUC
@@ -509,6 +525,30 @@ Each training run logs:
 - Per-slice performance table
 - ROC curve, PR curve, confusion matrix (PNG artifacts)
 - SHAP feature importance plots
+
+### What is tracked per MLflow run
+
+In practice, each run records four categories of information:
+
+- **Parameters**
+        - XGBoost hyperparameters (`learning_rate`, `max_depth`, `n_estimators`, `subsample`, `colsample_bytree`, `min_child_weight`)
+        - Runtime settings (`top_k_fraction`, tuned decision threshold, evaluation year window)
+        - Data/model URIs used for the run (`TRAIN_URI`/`VAL_URI`/`TEST_URI`, evaluated model URI)
+
+- **Metrics**
+        - Training/tuning metrics: validation ROC-AUC per Optuna trial, trial training time
+        - Final evaluation metrics: `test_roc_auc`, `test_precision_at_5pct`, `test_recall_at_5pct`, `test_brier_score`, `test_f1_at_tuned_threshold`
+        - Run-level counts: test sample count and positive-class count
+
+- **Artifacts**
+        - Optimization sensitivity plot (`optuna_sensitivity.png`)
+        - Evaluation plots (ROC, PR, confusion matrix)
+        - Slice-performance tables (`slice_performance.csv` / `.json`)
+        - Evaluation summary JSON used by notebook analysis
+
+- **Run metadata**
+        - Experiment name, run name, run ID, start/end time, and status
+        - Source entrypoint (`train.py` or `evaluate.py`), enabling traceability from UI to code path
 
 ![MLflow Experiments](docs/images/mlflow_experiments.png)
 
@@ -519,6 +559,35 @@ Each training run logs:
 source .env
 curl -I "$MLFLOW_TRACKING_URI"
 # or open MLFLOW_TRACKING_URI in browser
+```
+
+---
+
+## Model Experiments Notebook
+
+Notebook: `notebooks/model_experiments.ipynb`
+
+Purpose:
+- compare historical training/evaluation runs,
+- visualize optimization history,
+- present final model selection rationale.
+
+### Important: avoid local fallback confusion
+
+If plots show a **single dot**, the notebook likely loaded a one-row local CSV fallback (`artifacts/evaluation/mlflow_run_comparison.csv`) instead of full MLflow history.
+
+Fix:
+- Ensure `.env` has:
+        - `MLFLOW_TRACKING_URI=https://foresight-mlflow-6ool3rlbea-uc.a.run.app`
+        - `MLFLOW_EXPERIMENT_NAME=foresight-training`
+- Re-run Cell 1 and Cell 2
+- Confirm output says `Loaded <N> runs from MLflow.` where `N > 1`
+
+Optional strict mode for grading/demo:
+- Delete stale local fallback CSV before notebook run:
+
+```bash
+rm -f artifacts/evaluation/mlflow_run_comparison.csv
 ```
 
 ---
