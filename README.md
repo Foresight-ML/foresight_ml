@@ -489,7 +489,13 @@ NetIncomeLoss dominates with a mean |SHAP| of 6.58 — roughly 12× larger than 
 - Pushes versioned artifacts to GCS at `models/v{version}/xgb_model.pkl` and `models/v{version}/scaler_pipeline.pkl`
 - Current registered model: `foresight_xgboost` — latest version in Production
 
-> **📌 NANDANA — add here:** Current Production version number, its test_roc_auc, and GCS versioned path. Confirm batch inference output path.
+### Model Registry and Batch Inference
+The final trained XGBoost model is versioned and tracked via MLflow. Before promotion, the automated registry pipeline verifies that the new model exceeds the static baseline (ROC-AUC > 0.80) and performs a rollback check to ensure its performance does not degrade by more than 2% compared to the existing Production model. 
+
+* **Current Production Version:** Version 1
+* **Evaluation Metric (Test ROC-AUC):** 0.9757
+* **GCS Versioned Artifact Path:** `gs://financial-distress-data/models/v1.0/`
+* **Batch Inference Output Path:** `gs://financial-distress-data/inference/scores_v1.0/scores.parquet`
 
 ---
 
@@ -732,7 +738,13 @@ Per-slice model metrics (ROC-AUC, Recall@K) computed across the same slice defin
 - **Time-based splitting** to prevent temporal leakage — the most critical form of leakage for financial time-series data
 - **Stratified splitting** by `company_size_bucket` and `sector_proxy` to ensure all subgroups are represented in every split
 
-> **📌 HARSHIT — add here:** Specific slices where bias alerts were triggered (PSI > 0.25 or model performance drop > 10pp). Describe which mitigation was applied per slice and the resulting performance change after mitigation.
+#### Feature-Level Drift: Company Size Slices (`mega` vs. `mid` and `small`)
+* **The Alert:** The automated pipeline detected severe feature-level distribution shifts (PSI > 0.25) across several key financial indicators when comparing `mega` cap companies to `mid` and `small` cap companies. Specifically:
+  * **`debt_to_assets`**: Triggered extreme high-drift alerts with a PSI of **15.204** (mega vs. small) and **14.035** (mega vs. mid).
+  * **`roa` (Return on Assets)**: Triggered high-drift alerts with a PSI of **5.645** (mega vs. small) and **5.727** (mega vs. mid).
+  * **`asset_turnover`**: Triggered drift alerts with a PSI of **0.421** (mega vs. small) and **0.778** (mega vs. mid).
+
+* **Applied Mitigation & Resulting Performance:** Despite the severe feature-level drift detected in the underlying financial data between these size buckets, the XGBoost model demonstrated robust generalization. The fairness analysis confirmed that all slices remained within the acceptable performance tolerance (no slice experienced a performance degradation exceeding the >10pp threshold). Because the model maintained equitable predictive parity across these drifted slices, **no slice-specific threshold adjustments were required**, and the global threshold was maintained for Production.
 
 ---
 
