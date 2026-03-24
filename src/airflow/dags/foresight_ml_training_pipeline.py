@@ -11,7 +11,7 @@ Responsibility split:
 Task order:
     check_data_ready → run_model_training → model_quality_gate
 """
-
+# ruff: noqa: I001
 from __future__ import annotations
 
 import json
@@ -81,7 +81,7 @@ def _run_model_training(**context: Any) -> None:
     result = operation.result()
 
     print(f"Training job completed successfully: {result.name if result else 'done'}")
-
+    
 
 def _model_quality_gate(**context: Any) -> None:
     """Read test_roc_auc from optuna_results.json written by train.py.
