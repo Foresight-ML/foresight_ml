@@ -52,3 +52,20 @@ mlflow_sql_tier = "db-custom-1-3840"
 
 # Optional: Make MLflow service public for easy SDK access
 mlflow_allow_unauthenticated = true
+
+# Required for monitoring alerts: one or more email addresses
+alert_emails = ["teammate1@example.com", "teammate2@example.com"]
+
+# Backward-compatible single-email option (prefer alert_emails)
+# alert_email = "your-email@example.com"
+
+# Monitoring notifications are currently configured as email-only.
+
+# Optional: create initial secret payload via Terraform
+# Set to true only if you want Terraform to write the first secret version.
+create_initial_api_keys_version = false
+
+# Optional: API keys payload stored in Secret Manager (JSON map)
+# api_keys_secret_payload = {
+#   fred_api_key = "your-fred-key"
+# }
