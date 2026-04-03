@@ -174,7 +174,7 @@ def load_predictions() -> pd.DataFrame:
     except Exception:
         pass
 
-# Fall back: score using model + test data (local first, then GCS)
+    # Fall back: score using model + test data (local first, then GCS)
     try:
         import tempfile
         from pathlib import Path
@@ -306,7 +306,13 @@ def get_company_list(panel: pd.DataFrame) -> pd.DataFrame:
     latest = panel.groupby("firm_id").last().reset_index()
 
     cols = ["firm_id", "fiscal_year", "fiscal_period"]
-    optional = ["total_assets", "net_income", "distress_label", "company_size_bucket", "sector_proxy"]
+    optional = [
+        "total_assets",
+        "net_income",
+        "distress_label",
+        "company_size_bucket",
+        "sector_proxy",
+    ]
     for c in optional:
         if c in latest.columns:
             cols.append(c)

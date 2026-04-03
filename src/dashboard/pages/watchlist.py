@@ -12,7 +12,6 @@ import streamlit as st
 from src.dashboard.data.gcs_loader import load_labeled_panel, load_predictions
 from src.dashboard.utils import (
     risk_emoji,
-    COLORS,
 )
 
 
@@ -46,16 +45,20 @@ def _build_watchlist(predictions: pd.DataFrame, panel: pd.DataFrame) -> pd.DataF
         panel_latest = panel_sorted.groupby("firm_id").last().reset_index()
 
         merge_cols = ["firm_id"]
-        optional = ["sector_proxy", "company_size_bucket", "net_income",
-                     "NetCashProvidedByUsedInOperatingActivities",
-                     "RetainedEarningsAccumulatedDeficit", "total_liabilities", "total_assets"]
+        optional = [
+            "sector_proxy",
+            "company_size_bucket",
+            "net_income",
+            "NetCashProvidedByUsedInOperatingActivities",
+            "RetainedEarningsAccumulatedDeficit",
+            "total_liabilities",
+            "total_assets",
+        ]
         for c in optional:
             if c in panel_latest.columns:
                 merge_cols.append(c)
 
-        latest_preds = latest_preds.merge(
-            panel_latest[merge_cols], on="firm_id", how="left"
-        )
+        latest_preds = latest_preds.merge(panel_latest[merge_cols], on="firm_id", how="left")
 
     # Build display rows
     rows = []
@@ -66,28 +69,39 @@ def _build_watchlist(predictions: pd.DataFrame, panel: pd.DataFrame) -> pd.DataF
         signals = []
         if pd.notna(r.get("net_income")) and r["net_income"] < 0:
             signals.append("Neg. income")
-        if pd.notna(r.get("NetCashProvidedByUsedInOperatingActivities")) and r["NetCashProvidedByUsedInOperatingActivities"] < 0:
+        if (
+            pd.notna(r.get("NetCashProvidedByUsedInOperatingActivities"))
+            and r["NetCashProvidedByUsedInOperatingActivities"] < 0
+        ):
             signals.append("Neg. cash flow")
-        if pd.notna(r.get("RetainedEarningsAccumulatedDeficit")) and r["RetainedEarningsAccumulatedDeficit"] < 0:
+        if (
+            pd.notna(r.get("RetainedEarningsAccumulatedDeficit"))
+            and r["RetainedEarningsAccumulatedDeficit"] < 0
+        ):
             signals.append("Retained earnings ↓")
-        if (pd.notna(r.get("total_assets")) and r.get("total_assets", 0) > 0
-                and pd.notna(r.get("total_liabilities"))
-                and r["total_liabilities"] / r["total_assets"] > 0.8):
+        if (
+            pd.notna(r.get("total_assets"))
+            and r.get("total_assets", 0) > 0
+            and pd.notna(r.get("total_liabilities"))
+            and r["total_liabilities"] / r["total_assets"] > 0.8
+        ):
             signals.append("High leverage")
 
         # Trend
         prev = r.get("prev_prob")
         change = prob - float(prev) if pd.notna(prev) else 0.0
 
-        rows.append({
-            "firm_id": r["firm_id"],
-            "sector": r.get("sector_proxy", "—"),
-            "size": r.get("company_size_bucket", "—"),
-            "risk_score": prob,
-            "change": change,
-            "signals": " · ".join(signals) if signals else "—",
-            "quarter": f"{r.get('fiscal_period', '')} {int(r.get('fiscal_year', 0))}",
-        })
+        rows.append(
+            {
+                "firm_id": r["firm_id"],
+                "sector": r.get("sector_proxy", "—"),
+                "size": r.get("company_size_bucket", "—"),
+                "risk_score": prob,
+                "change": change,
+                "signals": " · ".join(signals) if signals else "—",
+                "quarter": f"{r.get('fiscal_period', '')} {int(r.get('fiscal_year', 0))}",
+            }
+        )
 
     return pd.DataFrame(rows)
 
@@ -166,7 +180,9 @@ def render() -> None:
         st.info(f"No companies found with risk score ≥ {threshold:.0%}")
         return
 
-    st.markdown(f"**Showing {len(filtered):,} companies** · Sorted by predicted distress probability")
+    st.markdown(
+        f"**Showing {len(filtered):,} companies** · Sorted by predicted distress probability"
+    )
 
     display = filtered.copy()
     display["risk"] = display["risk_score"].apply(lambda s: f"{risk_emoji(s)} {s:.2%}")

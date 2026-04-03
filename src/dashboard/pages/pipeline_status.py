@@ -6,7 +6,6 @@ last run timestamps, and key summary metrics.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
@@ -17,7 +16,6 @@ from src.dashboard.data.gcs_loader import (
     load_optuna_results,
     load_predictions,
 )
-from src.dashboard.utils import COLORS
 
 
 def _status_dot(status: str) -> str:
@@ -118,12 +116,14 @@ def render() -> None:
         train_tasks = []
 
         # Data gate
-        train_tasks.append((
-            "Data gate check",
-            "~0.1m",
-            "success" if test_exists else "pending",
-            "Passed" if test_exists else "Pending",
-        ))
+        train_tasks.append(
+            (
+                "Data gate check",
+                "~0.1m",
+                "success" if test_exists else "pending",
+                "Passed" if test_exists else "Pending",
+            )
+        )
 
         # Training
         if optuna.get("best_params"):
@@ -134,38 +134,46 @@ def render() -> None:
         # Quality gate
         if roc_auc > 0:
             passed = roc_auc >= 0.80
-            train_tasks.append((
-                "Quality gate (ROC-AUC)",
-                "~0.2m",
-                "success" if passed else "failed",
-                f"{roc_auc:.4f} {'✓' if passed else '✗'}",
-            ))
+            train_tasks.append(
+                (
+                    "Quality gate (ROC-AUC)",
+                    "~0.2m",
+                    "success" if passed else "failed",
+                    f"{roc_auc:.4f} {'✓' if passed else '✗'}",
+                )
+            )
         else:
             train_tasks.append(("Quality gate (ROC-AUC)", "—", "pending", "Pending"))
 
         # SHAP + bias
-        train_tasks.append((
-            "SHAP + bias report",
-            "~8m",
-            "success" if shap_exists else "pending",
-            "Success" if shap_exists else "Pending",
-        ))
+        train_tasks.append(
+            (
+                "SHAP + bias report",
+                "~8m",
+                "success" if shap_exists else "pending",
+                "Success" if shap_exists else "Pending",
+            )
+        )
 
         # Batch inference
-        train_tasks.append((
-            "Batch inference",
-            "~5m",
-            "success" if has_predictions else "pending",
-            f"{len(predictions):,} rows" if has_predictions else "Pending",
-        ))
+        train_tasks.append(
+            (
+                "Batch inference",
+                "~5m",
+                "success" if has_predictions else "pending",
+                f"{len(predictions):,} rows" if has_predictions else "Pending",
+            )
+        )
 
         # Registry
-        train_tasks.append((
-            "Registry + rollback check",
-            "~0.5m",
-            "success" if model_exists else "pending",
-            "Promoted" if model_exists else "Pending",
-        ))
+        train_tasks.append(
+            (
+                "Registry + rollback check",
+                "~0.5m",
+                "success" if model_exists else "pending",
+                "Promoted" if model_exists else "Pending",
+            )
+        )
 
         for name, duration, status, detail in train_tasks:
             st.markdown(_pipeline_row(name, duration, status, detail), unsafe_allow_html=True)
@@ -207,12 +215,12 @@ def render() -> None:
     ]
 
     cols = st.columns(len(artifacts))
-    for col, (name, exists) in zip(cols, artifacts):
+    for col, (name, exists) in zip(cols, artifacts, strict=False):
         col.markdown(
-            f"""<div style="text-align:center;padding:8px;background:{'#dcfce7' if exists else '#fee2e2'};
+            f"""<div style="text-align:center;padding:8px;background:{"#dcfce7" if exists else "#fee2e2"};
             border-radius:8px;font-size:12px">
-                <div>{'✅' if exists else '❌'}</div>
-                <div style="margin-top:4px;color:{'#166534' if exists else '#b91c1c'}">{name}</div>
+                <div>{"✅" if exists else "❌"}</div>
+                <div style="margin-top:4px;color:{"#166534" if exists else "#b91c1c"}">{name}</div>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -221,5 +229,7 @@ def render() -> None:
     st.markdown("---")
     link1, link2, link3 = st.columns(3)
     link1.markdown("[🔗 MLflow](https://foresight-mlflow-6ool3rlbea-uc.a.run.app)")
-    link2.markdown("[🔗 GCS Bucket](https://console.cloud.google.com/storage/browser/financial-distress-data)")
+    link2.markdown(
+        "[🔗 GCS Bucket](https://console.cloud.google.com/storage/browser/financial-distress-data)"
+    )
     link3.markdown("[🔗 GitHub](https://github.com/Foresight-ML/foresight_ml)")

@@ -17,6 +17,7 @@ from src.dashboard.data.gcs_loader import (
     load_shap_values,
 )
 from src.dashboard.utils import (
+    COLORS,
     apply_chart_theme,
     fmt_large_number,
     parse_top_features_json,
@@ -25,7 +26,6 @@ from src.dashboard.utils import (
     risk_badge_html,
     risk_color,
     shap_color,
-    COLORS,
 )
 
 
@@ -46,7 +46,9 @@ def render() -> None:
     if not predictions.empty:
         firm_ids = sorted(predictions["firm_id"].unique())
         data_source = "predictions"
-        st.success(f"Loaded {len(predictions):,} predictions for {len(firm_ids):,} companies", icon="✅")
+        st.success(
+            f"Loaded {len(predictions):,} predictions for {len(firm_ids):,} companies", icon="✅"
+        )
     else:
         firm_ids = sorted(panel["firm_id"].unique())
         data_source = "panel"
@@ -73,7 +75,9 @@ def render() -> None:
         fp = predictions[predictions["firm_id"] == selected_firm].copy()
         if not fp.empty:
             fp["sort_key"] = fp.apply(
-                lambda r: quarter_sort_key(int(r["fiscal_year"]), str(r.get("fiscal_period", "Q1"))),
+                lambda r: quarter_sort_key(
+                    int(r["fiscal_year"]), str(r.get("fiscal_period", "Q1"))
+                ),
                 axis=1,
             )
             firm_preds = fp.sort_values("sort_key")
@@ -143,16 +147,28 @@ def render() -> None:
                 x=display_preds["quarter"],
                 y=display_preds["distress_probability"],
                 mode="lines+markers",
-                line=dict(color=risk_color(latest_score), width=2.5),
-                marker=dict(size=8),
+                line={"color": risk_color(latest_score), "width": 2.5},
+                marker={"size": 8},
                 name="Distress probability",
                 hovertemplate="Quarter: %{x}<br>Probability: %{y:.2%}<extra></extra>",
             )
         )
-        fig.add_hline(y=0.70, line_dash="dash", line_color=COLORS["high"], opacity=0.4,
-                      annotation_text="High risk (0.70)", annotation_position="top left")
-        fig.add_hline(y=0.30, line_dash="dash", line_color=COLORS["medium"], opacity=0.3,
-                      annotation_text="Medium (0.30)", annotation_position="top left")
+        fig.add_hline(
+            y=0.70,
+            line_dash="dash",
+            line_color=COLORS["high"],
+            opacity=0.4,
+            annotation_text="High risk (0.70)",
+            annotation_position="top left",
+        )
+        fig.add_hline(
+            y=0.30,
+            line_dash="dash",
+            line_color=COLORS["medium"],
+            opacity=0.3,
+            annotation_text="Medium (0.30)",
+            annotation_position="top left",
+        )
         fig.update_yaxes(title_text="Distress probability", range=[-0.05, 1.05], tickformat=".0%")
         fig.update_xaxes(title_text="")
         fig.update_layout(height=280, showlegend=False)
@@ -168,19 +184,30 @@ def render() -> None:
 
     elif not history.empty and "distress_label" in history.columns:
         st.markdown("#### Distress label — last 8 quarters")
-        st.caption("⚠️ Binary labels shown. Probability predictions available for test set companies (2022–2023).")
+        st.caption(
+            "⚠️ Binary labels shown. Probability predictions available for test set companies (2022–2023)."
+        )
 
         recent = history.tail(8).copy()
         recent["quarter"] = recent.apply(
-            lambda r: quarter_label(int(r["fiscal_year"]), str(r.get("fiscal_period", ""))), axis=1)
+            lambda r: quarter_label(int(r["fiscal_year"]), str(r.get("fiscal_period", ""))), axis=1
+        )
         recent["sort_key"] = recent.apply(
-            lambda r: quarter_sort_key(int(r["fiscal_year"]), str(r.get("fiscal_period", ""))), axis=1)
+            lambda r: quarter_sort_key(int(r["fiscal_year"]), str(r.get("fiscal_period", ""))),
+            axis=1,
+        )
         recent = recent.sort_values("sort_key")
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=recent["quarter"], y=recent["distress_label"],
-                                  mode="lines+markers", line=dict(color=risk_color(latest_score), width=2),
-                                  marker=dict(size=7)))
+        fig.add_trace(
+            go.Scatter(
+                x=recent["quarter"],
+                y=recent["distress_label"],
+                mode="lines+markers",
+                line={"color": risk_color(latest_score), "width": 2},
+                marker={"size": 7},
+            )
+        )
         fig.update_yaxes(range=[-0.1, 1.1], tickvals=[0, 1], ticktext=["Healthy", "Distressed"])
         fig.update_layout(height=250, showlegend=False)
         apply_chart_theme(fig)
@@ -211,7 +238,7 @@ def render() -> None:
                     st.markdown(
                         f"""<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
                             <div style="width:160px;color:#73726c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-                                 title="{feat['feature']}">{feat['feature']}</div>
+                                 title="{feat["feature"]}">{feat["feature"]}</div>
                             <div style="flex:1;height:8px;background:#f0efea;border-radius:4px;overflow:hidden">
                                 <div style="height:100%;width:{pct:.0f}%;background:{color};border-radius:4px"></div>
                             </div>
@@ -229,8 +256,10 @@ def render() -> None:
             else:
                 st.info("No SHAP explanations available for this quarter.")
         else:
-            st.info("SHAP data not available for this company. "
-                    "SHAP values are computed on the test set (2022–2023).")
+            st.info(
+                "SHAP data not available for this company. "
+                "SHAP values are computed on the test set (2022–2023)."
+            )
 
     with col_snapshot:
         st.markdown("#### Financial snapshot")
@@ -244,7 +273,11 @@ def render() -> None:
                 ("Total liabilities", "total_liabilities", fmt_large_number),
                 ("Stockholders equity", "StockholdersEquity", fmt_large_number),
                 ("Cash & equivalents", "CashAndCashEquivalentsAtCarryingValue", fmt_large_number),
-                ("Operating cash flow", "NetCashProvidedByUsedInOperatingActivities", fmt_large_number),
+                (
+                    "Operating cash flow",
+                    "NetCashProvidedByUsedInOperatingActivities",
+                    fmt_large_number,
+                ),
                 ("Retained earnings", "RetainedEarningsAccumulatedDeficit", fmt_large_number),
             ]
 
