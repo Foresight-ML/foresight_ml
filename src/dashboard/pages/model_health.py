@@ -100,10 +100,10 @@ def render() -> None:
             f"""<div style="display:flex;justify-content:space-between;padding:6px 0;
             border-bottom:0.5px solid rgba(0,0,0,0.07);font-size:13px">
                 <span style="color:#73726c">Dataset drift</span>
-                <span style="background:{'#fee2e2' if drift_detected else '#dcfce7'};
-                color:{'#b91c1c' if drift_detected else '#166534'};
+                <span style="background:{"#fee2e2" if drift_detected else "#dcfce7"};
+                color:{"#b91c1c" if drift_detected else "#166534"};
                 padding:2px 10px;border-radius:20px;font-size:11px;font-weight:500">
-                {'Detected' if drift_detected else 'None'}</span>
+                {"Detected" if drift_detected else "None"}</span>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -125,7 +125,11 @@ def render() -> None:
                 if isinstance(feat, dict):
                     name = feat.get("feature", str(feat))
                     psi = feat.get("psi", 0)
-                    color = COLORS["high"] if psi > 0.25 else (COLORS["medium"] if psi > 0.10 else COLORS["low"])
+                    color = (
+                        COLORS["high"]
+                        if psi > 0.25
+                        else (COLORS["medium"] if psi > 0.10 else COLORS["low"])
+                    )
                     st.markdown(
                         f"""<div style="display:flex;justify-content:space-between;padding:4px 0;
                         border-bottom:0.5px solid rgba(0,0,0,0.05);font-size:12px">
@@ -142,7 +146,7 @@ def render() -> None:
         st.markdown(
             f"""<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px">
                 <span style="color:#73726c">Features checked</span>
-                <span>{drift.get('total_features_checked', '—')}</span>
+                <span>{drift.get("total_features_checked", "—")}</span>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -164,10 +168,19 @@ def render() -> None:
     st.markdown("#### Slice performance — test set (2022–2023)")
 
     if not slice_perf.empty:
-        display_cols = [c for c in [
-            "dimension", "slice", "sample_count", "roc_auc",
-            "recall_at_5pct", "precision_at_5pct", "brier_score"
-        ] if c in slice_perf.columns]
+        display_cols = [
+            c
+            for c in [
+                "dimension",
+                "slice",
+                "sample_count",
+                "roc_auc",
+                "recall_at_5pct",
+                "precision_at_5pct",
+                "brier_score",
+            ]
+            if c in slice_perf.columns
+        ]
 
         st.dataframe(
             slice_perf[display_cols],

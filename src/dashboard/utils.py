@@ -10,7 +10,6 @@ import json
 
 import pandas as pd
 
-
 # ---------------------------------------------------------------------------
 # Risk thresholds and colors
 # ---------------------------------------------------------------------------
@@ -182,12 +181,12 @@ def apply_chart_theme(fig: object) -> object:
         font_color=COLORS["text"],
         plot_bgcolor="white",
         paper_bgcolor="white",
-        margin=dict(l=40, r=20, t=40, b=40),
-        legend=dict(
-            bgcolor="rgba(255,255,255,0.8)",
-            bordercolor=COLORS["border"],
-            borderwidth=1,
-        ),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
+        legend={
+            "bgcolor": "rgba(255,255,255,0.8)",
+            "bordercolor": COLORS["border"],
+            "borderwidth": 1,
+        },
     )
     fig.update_xaxes(
         gridcolor="rgba(0,0,0,0.06)",
