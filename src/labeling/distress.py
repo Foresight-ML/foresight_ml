@@ -159,8 +159,6 @@ class DistressLabeler:
         signal_cols = ["_s1", "_s2", "_s3", "_s4", "_s5"]
         df["_signal_count"] = df[signal_cols].fillna(0).sum(axis=1)
 
-        distressed_now = df["_signal_count"] >= 2
-
         # ---- Shift forward by horizon quarters (no leakage) --------------
         logger.info("Shifting composite label forward by %d quarter(s)", self.horizon)
         df["distress_label"] = (
