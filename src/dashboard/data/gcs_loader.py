@@ -4,15 +4,13 @@ Loads scores, SHAP values, labeled panel, manifest, drift reports,
 and model metadata from GCS. All loaders are cached with a 5-minute TTL
 so the dashboard stays responsive.
 
-Gracefully returns empty DataFrames / default dicts when files don't exist yet
-(e.g., scores parquet before Person 5 runs batch inference).
+Gracefully returns empty DataFrames / default dicts when files don't exist yet.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -20,7 +18,7 @@ import streamlit as st
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# GCS paths — configurable via st.secrets or environment
+# GCS paths
 # ---------------------------------------------------------------------------
 GCS_BUCKET = "financial-distress-data"
 
@@ -56,16 +54,13 @@ def _read_gcs_json(uri: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Loaders — each cached independently
+# Loaders
 # ---------------------------------------------------------------------------
 
 
 @st.cache_data(ttl=300, show_spinner="Loading scores...")
 def load_scores() -> pd.DataFrame:
-    """Load batch inference scores from GCS.
-
-    Returns empty DataFrame if scores don't exist yet.
-    """
+    """Load batch inference scores from GCS."""
     try:
         df = pd.read_parquet(SCORES_URI)
         log.info("Loaded scores: %d rows", len(df))
@@ -101,10 +96,7 @@ def load_labeled_panel() -> pd.DataFrame:
 
 @st.cache_data(ttl=300, show_spinner="Loading model info...")
 def load_manifest() -> dict:
-    """Load manifest.json from GCS.
-
-    Returns default dict if manifest doesn't exist yet.
-    """
+    """Load manifest.json from GCS."""
     data = _read_gcs_json(MANIFEST_URI)
     if data:
         return data
@@ -130,19 +122,12 @@ def load_optuna_results() -> dict:
     data = _read_gcs_json(OPTUNA_URI)
     if data:
         return data
-    return {
-        "baseline_val_roc": 0.0,
-        "best_params": {},
-        "test_roc_auc": 0.0,
-    }
+    return {"baseline_val_roc": 0.0, "best_params": {}, "test_roc_auc": 0.0}
 
 
 @st.cache_data(ttl=300)
 def load_drift_summary() -> dict:
-    """Load latest drift monitoring summary from GCS.
-
-    Returns default (no drift) if report doesn't exist yet.
-    """
+    """Load latest drift monitoring summary from GCS."""
     data = _read_gcs_json(DRIFT_SUMMARY_URI)
     if data:
         return data
@@ -158,15 +143,153 @@ def load_drift_summary() -> dict:
 def load_slice_performance() -> pd.DataFrame:
     """Load per-slice performance table from GCS."""
     try:
-        df = pd.read_parquet(SLICE_PERF_URI)
+        df = pd.read_csv(SLICE_PERF_URI)
         return df
-    except Exception:
-        try:
-            df = pd.read_csv(SLICE_PERF_URI.replace(".parquet", ".csv"))
+    except Exception as e:
+        log.warning("Slice performance not available: %s", e)
+        return pd.DataFrame()
+
+
+# ---------------------------------------------------------------------------
+# Predictions — live scoring fallback
+# ---------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=300, show_spinner="Generating predictions...")
+def load_predictions() -> pd.DataFrame:
+    """Load or generate distress probability predictions.
+
+    Priority:
+      1. Load scores parquet from GCS (Person 5's batch inference output)
+      2. Fall back: load model + test data, run predict_proba live
+
+    Returns DataFrame with firm_id, fiscal_year, fiscal_period, distress_probability.
+    """
+    # Try scores parquet first
+    try:
+        df = pd.read_parquet(SCORES_URI)
+        if "distress_probability" in df.columns:
+            log.info("Loaded batch scores: %d rows", len(df))
             return df
-        except Exception as e:
-            log.warning("Slice performance not available: %s", e)
+    except Exception:
+        pass
+
+# Fall back: score using model + test data (local first, then GCS)
+    try:
+        import tempfile
+        from pathlib import Path
+
+        from pandas.api.types import is_datetime64_any_dtype
+        from xgboost import XGBClassifier
+
+        # Try local files first, then GCS
+        local_model = Path("artifacts/models/xgb_model.pkl")
+        local_test = Path("artifacts/splits/test.parquet")
+
+        if local_model.exists() and local_test.exists():
+            log.info("Scoring from local files...")
+            model_path = local_model
+            test_df = pd.read_parquet(local_test)
+        else:
+            log.info("Scoring from GCS...")
+            from google.cloud import storage
+
+            client = storage.Client()
+            bucket = client.bucket(GCS_BUCKET)
+            model_path = Path(tempfile.gettempdir()) / "xgb_model.pkl"
+            bucket.blob("models/xgb_model.pkl").download_to_filename(str(model_path))
+            test_df = pd.read_parquet(f"gs://{GCS_BUCKET}/splits/v1/test.parquet")
+
+        model = XGBClassifier()
+        model.load_model(str(model_path))
+
+        label_col = "distress_label"
+        if label_col not in test_df.columns:
             return pd.DataFrame()
+
+        # Preserve identifiers
+        id_cols = ["firm_id", "fiscal_year", "fiscal_period"]
+        ids = test_df[id_cols].copy()
+
+        # Prepare features
+        features = test_df.drop(columns=[label_col])
+        for col in features.columns:
+            if is_datetime64_any_dtype(features[col]):
+                features[col] = features[col].astype("int64")
+        features = pd.get_dummies(features, dummy_na=True)
+
+        # Align to model's expected columns
+        trained_cols = model.get_booster().feature_names
+        if trained_cols:
+            features = features.reindex(columns=trained_cols, fill_value=0)
+
+        # Predict
+        probas = model.predict_proba(features)[:, 1]
+
+        result = ids.copy()
+        result["distress_probability"] = probas
+        result["distress_label"] = test_df[label_col].values
+
+        log.info("Live scoring complete: %d rows, mean prob=%.3f", len(result), probas.mean())
+        return result
+
+    except Exception as e:
+        log.warning("Live scoring failed: %s", e)
+        return pd.DataFrame()
+        import tempfile
+        from pathlib import Path
+
+        from google.cloud import storage
+        from pandas.api.types import is_datetime64_any_dtype
+        from xgboost import XGBClassifier
+
+        log.info("Scoring live using model from GCS...")
+
+        # Download model
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        model_path = Path(tempfile.gettempdir()) / "xgb_model.pkl"
+        bucket.blob("models/xgb_model.pkl").download_to_filename(str(model_path))
+
+        model = XGBClassifier()
+        model.load_model(str(model_path))
+
+        # Load test split
+        test_df = pd.read_parquet(f"gs://{GCS_BUCKET}/splits/v1/test.parquet")
+
+        label_col = "distress_label"
+        if label_col not in test_df.columns:
+            return pd.DataFrame()
+
+        # Preserve identifiers
+        id_cols = ["firm_id", "fiscal_year", "fiscal_period"]
+        ids = test_df[id_cols].copy()
+
+        # Prepare features
+        features = test_df.drop(columns=[label_col])
+        for col in features.columns:
+            if is_datetime64_any_dtype(features[col]):
+                features[col] = features[col].astype("int64")
+        features = pd.get_dummies(features, dummy_na=True)
+
+        # Align to model's expected columns
+        trained_cols = model.get_booster().feature_names
+        if trained_cols:
+            features = features.reindex(columns=trained_cols, fill_value=0)
+
+        # Predict
+        probas = model.predict_proba(features)[:, 1]
+
+        result = ids.copy()
+        result["distress_probability"] = probas
+        result["distress_label"] = test_df[label_col].values
+
+        log.info("Live scoring complete: %d rows, mean prob=%.3f", len(result), probas.mean())
+        return result
+
+    except Exception as e:
+        log.warning("Live scoring failed: %s", e)
+        return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +298,7 @@ def load_slice_performance() -> pd.DataFrame:
 
 
 def get_company_list(panel: pd.DataFrame) -> pd.DataFrame:
-    """Get unique company list with latest data for search/filter.
-
-    Returns DataFrame with firm_id, latest fiscal_year, fiscal_period,
-    and key financial metrics from the most recent quarter.
-    """
+    """Get unique company list with latest data for search/filter."""
     if panel.empty:
         return pd.DataFrame()
 
@@ -187,10 +306,7 @@ def get_company_list(panel: pd.DataFrame) -> pd.DataFrame:
     latest = panel.groupby("firm_id").last().reset_index()
 
     cols = ["firm_id", "fiscal_year", "fiscal_period"]
-    optional = [
-        "total_assets", "net_income", "distress_label",
-        "company_size_bucket", "sector_proxy",
-    ]
+    optional = ["total_assets", "net_income", "distress_label", "company_size_bucket", "sector_proxy"]
     for c in optional:
         if c in latest.columns:
             cols.append(c)
@@ -198,9 +314,7 @@ def get_company_list(panel: pd.DataFrame) -> pd.DataFrame:
     return latest[cols]
 
 
-def get_company_history(
-    panel: pd.DataFrame, firm_id: str
-) -> pd.DataFrame:
+def get_company_history(panel: pd.DataFrame, firm_id: str) -> pd.DataFrame:
     """Get all quarterly rows for a specific company, sorted by time."""
     if panel.empty:
         return pd.DataFrame()
