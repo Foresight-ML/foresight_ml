@@ -33,6 +33,9 @@ dependencies = [
     "pre-commit>=4.5.1",
     "dvc>=3.66.1",
     "dvc-gs>=3.0.2",
+    "fastapi>=0.117.1",
+    "uvicorn>=0.40.0",
+    "slowapi>=0.1.9",
 ]
 
 [build-system]
