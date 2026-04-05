@@ -225,6 +225,10 @@ def load_predictions() -> pd.DataFrame:
 
     except Exception as e:
         log.warning("Live scoring failed: %s", e)
+        log.info(
+            "To enable predictions, place xgb_model.pkl in artifacts/models/ "
+            "and test.parquet in artifacts/splits/"
+        )
         return pd.DataFrame()
 
 
