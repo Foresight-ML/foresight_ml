@@ -135,6 +135,25 @@ def render() -> None:
     st.header("🔍 Company Risk Explorer")
     st.caption("Probability of financial distress within the next 6 months (2 quarters)")
 
+    with st.expander("ℹ️ How to use this page", expanded=False):
+        st.markdown(
+            """
+            **Company Risk Explorer** shows the predicted probability of financial
+            distress for any US public company within the next 6 months.
+
+            **How to read the results:**
+            - **Risk badge** — 🟢 Low (<30%), 🟡 Medium (30-70%), 🔴 High (>70%)
+            - **Signal chips** — Quick health indicators based on latest financials
+            - **SHAP drivers** — Top 5 features pushing the prediction up (🔴) or down (🟢)
+            - **Trend chart** — How the company's risk has changed across quarters
+
+            **Tips:**
+            - Type a company name, ticker (e.g. AAPL), or CIK number to search
+            - Only companies in the 2022–2023 test set have model predictions
+            - Other companies show binary distress labels instead of probabilities
+            """
+        )
+
     # ── Load data ────────────────────────────────────────────────────
     predictions = load_predictions()
     panel = load_labeled_panel()
@@ -163,6 +182,15 @@ def render() -> None:
             "Run the training pipeline to generate probability scores.",
             icon="⚠️",
         )
+    # ── Data freshness alert ─────────────────────────────────────────
+    if not predictions.empty and "fiscal_year" in predictions.columns:
+        max_year = int(predictions["fiscal_year"].max())
+        if max_year < 2024:
+            st.warning(
+                f"⚠️ Predictions are from {max_year}. Scores may not reflect "
+                f"current financial conditions. Run the training pipeline for fresh predictions.",
+                icon="⚠️",
+            )
 
     # ── Build search options with company names ──────────────────────
     id_to_info: dict[str, dict] = {}
