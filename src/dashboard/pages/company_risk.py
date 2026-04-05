@@ -162,8 +162,11 @@ def render() -> None:
 
     if predictions.empty and panel.empty:
         st.error(
-            "No data available. Ensure GCS credentials are configured "
-            "and the data pipeline has run at least once."
+            "😕 We couldn't load any company data right now. This usually means:\n\n"
+            "- The data pipeline hasn't run yet\n"
+            "- GCS credentials aren't set up on this machine\n\n"
+            "Try running `make data` or contact your team lead for access.",
+            icon="🚫",
         )
         return
 
@@ -191,6 +194,16 @@ def render() -> None:
                 f"current financial conditions. Run the training pipeline for fresh predictions.",
                 icon="⚠️",
             )
+    # ── Data quality check ───────────────────────────────────────────
+    if not predictions.empty:
+        nan_count = predictions["distress_probability"].isna().sum()
+        if nan_count > 0:
+            st.warning(
+                f"⚠️ {nan_count:,} predictions have missing probability scores. "
+                f"These companies will be excluded from rankings.",
+                icon="⚠️",
+            )
+            predictions = predictions.dropna(subset=["distress_probability"])
 
     # ── Build search options with company names ──────────────────────
     id_to_info: dict[str, dict] = {}
@@ -275,7 +288,11 @@ def render() -> None:
         latest_period = str(lr.get("fiscal_period", "Q4"))
     else:
         loading.empty()
-        st.warning(f"No data found for {selected_firm}")
+        st.warning(
+            f"No data found for **{selected_firm}**. This company may not have "
+            f"SEC filings in the 2022–2023 test period, or its data may be incomplete.",
+            icon="⚠️",
+        )
         return
 
     with col_quarter:
