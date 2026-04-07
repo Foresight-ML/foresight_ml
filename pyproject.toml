@@ -128,3 +128,19 @@ ignore_missing_imports = true
 constraint-dependencies = [
     "aiohttp>=3.13.4",  # Fix CVE-2026-34513 through CVE-2026-34525
 ]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/dashboard/app.py",
+    "src/dashboard/pages/model_health.py",
+    "src/dashboard/pages/pipeline_status.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__",
+    "raise NotImplementedError",
+]
+

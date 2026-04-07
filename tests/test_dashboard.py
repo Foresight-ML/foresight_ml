@@ -836,7 +836,6 @@ class TestSignalChipsEdgeCases:
         }
         result = _build_signal_chips(row)
         assert "Profitable" in result
-        # No leverage chip when total_assets is 0
         assert "leverage" not in result.lower()
 
     def test_zero_cash_flow(self) -> None:
@@ -849,7 +848,6 @@ class TestSignalChipsEdgeCases:
             "total_liabilities": 100,
         }
         result = _build_signal_chips(row)
-        # Zero cash flow: neither positive nor negative chip
         assert "cash flow" not in result.lower()
 
     def test_missing_fields_default_zero(self) -> None:
@@ -857,7 +855,155 @@ class TestSignalChipsEdgeCases:
 
         row: dict = {}
         result = _build_signal_chips(row)
-        assert "Profitable" in result  # net_income defaults to 0, not < 0
+        assert "Profitable" in result
+
+    def test_all_negative_signals(self) -> None:
+        from src.dashboard.pages.company_risk import _build_signal_chips
+
+        row = {
+            "net_income": -1,
+            "NetCashProvidedByUsedInOperatingActivities": -1,
+            "RetainedEarningsAccumulatedDeficit": -1,
+            "total_assets": 100,
+            "total_liabilities": 95,
+        }
+        result = _build_signal_chips(row)
+        assert "Negative net income" in result
+        assert "Negative cash flow" in result
+        assert "Accumulated deficit" in result
+        assert "High leverage" in result
+        assert result.count("🔴") == 4
+
+    def test_all_positive_signals(self) -> None:
+        from src.dashboard.pages.company_risk import _build_signal_chips
+
+        row = {
+            "net_income": 1_000,
+            "NetCashProvidedByUsedInOperatingActivities": 500,
+            "RetainedEarningsAccumulatedDeficit": 200,
+            "total_assets": 10_000,
+            "total_liabilities": 2_000,
+        }
+        result = _build_signal_chips(row)
+        assert "Profitable" in result
+        assert "Positive cash flow" in result
+        assert "Healthy leverage" in result
+        assert "🟢" in result
+
+
+# ---------------------------------------------------------------------------
+# SHAP features — additional coverage
+# ---------------------------------------------------------------------------
+
+
+class TestShapFeaturesEdgeCases:
+    """Additional tests for _get_top_shap_features."""
+
+    def test_top_n_limits_results(self) -> None:
+        from src.dashboard.pages.company_risk import _get_top_shap_features
+
+        shap_df = pd.DataFrame({
+            "shap_a": [0.5],
+            "shap_b": [-0.4],
+            "shap_c": [0.3],
+            "shap_d": [-0.2],
+            "shap_e": [0.1],
+        })
+        result = _get_top_shap_features(shap_df, top_n=3)
+        assert len(result) == 3
+        assert result[0]["rank"] == 1
+        assert result[1]["rank"] == 2
+        assert result[2]["rank"] == 3
+
+    def test_sorts_by_absolute_value(self) -> None:
+        from src.dashboard.pages.company_risk import _get_top_shap_features
+
+        shap_df = pd.DataFrame({
+            "shap_small": [0.01],
+            "shap_big_negative": [-0.9],
+            "shap_medium": [0.5],
+        })
+        result = _get_top_shap_features(shap_df, top_n=3)
+        assert result[0]["feature"] == "big_negative"
+        assert result[1]["feature"] == "medium"
+        assert result[2]["feature"] == "small"
+
+    def test_empty_json_fallback(self) -> None:
+        from src.dashboard.pages.company_risk import _get_top_shap_features
+
+        shap_df = pd.DataFrame({"top_features_json": ["[]"]})
+        result = _get_top_shap_features(shap_df, top_n=5)
+        assert result == []
+
+    def test_single_shap_column(self) -> None:
+        from src.dashboard.pages.company_risk import _get_top_shap_features
+
+        shap_df = pd.DataFrame({"shap_only_feature": [0.42]})
+        result = _get_top_shap_features(shap_df, top_n=5)
+        assert len(result) == 1
+        assert result[0]["feature"] == "only_feature"
+        assert result[0]["shap_value"] == pytest.approx(0.42)
+
+
+# ---------------------------------------------------------------------------
+# Watchlist builder — comprehensive signal combinations
+# ---------------------------------------------------------------------------
+
+
+class TestWatchlistSignalCombinations:
+    """Test all signal detection paths in _build_watchlist."""
+
+    def _make_preds(self, firm_id: str = "AAA") -> pd.DataFrame:
+        return pd.DataFrame({
+            "firm_id": [firm_id],
+            "fiscal_year": [2023],
+            "fiscal_period": ["Q1"],
+            "distress_probability": [0.8],
+        })
+
+    def test_all_four_signals(self) -> None:
+        from src.dashboard.pages.watchlist import _build_watchlist
+
+        panel = pd.DataFrame({
+            "firm_id": ["AAA"],
+            "fiscal_year": [2023],
+            "fiscal_period": ["Q1"],
+            "net_income": [-100],
+            "NetCashProvidedByUsedInOperatingActivities": [-50],
+            "RetainedEarningsAccumulatedDeficit": [-200],
+            "total_assets": [1000],
+            "total_liabilities": [850],
+        })
+        result = _build_watchlist(self._make_preds(), panel)
+        signals = result.iloc[0]["signals"]
+        assert "Neg. income" in signals
+        assert "Neg. cash flow" in signals
+        assert "Retained earnings" in signals
+        assert "High leverage" in signals
+
+    def test_sector_from_panel(self) -> None:
+        from src.dashboard.pages.watchlist import _build_watchlist
+
+        panel = pd.DataFrame({
+            "firm_id": ["AAA"],
+            "fiscal_year": [2023],
+            "fiscal_period": ["Q1"],
+            "sector_proxy": ["Technology"],
+        })
+        result = _build_watchlist(self._make_preds(), panel)
+        assert result.iloc[0]["sector"] == "Technology"
+
+    def test_size_from_panel(self) -> None:
+        from src.dashboard.pages.watchlist import _build_watchlist
+
+        panel = pd.DataFrame({
+            "firm_id": ["AAA"],
+            "fiscal_year": [2023],
+            "fiscal_period": ["Q1"],
+            "company_size_bucket": ["large"],
+        })
+        result = _build_watchlist(self._make_preds(), panel)
+        assert result.iloc[0]["size"] == "large"
 
 
 class TestCompanyRiskHelpers:
