@@ -15,8 +15,6 @@ from airflow.providers.standard.operators.python import PythonOperator
 from google.cloud import bigquery
 from google.cloud.storage import Client
 
-sys.path.insert(0, "/opt/airflow")
-
 from src.ingestion.fred_increment_job import main as fred_main  # noqa: E402
 from src.ingestion.sec_xbrl_increment_job import main as sec_main  # noqa: E402
 from src.main_labeling import main as label_main  # noqa: E402
@@ -25,6 +23,7 @@ from src.config.settings import settings  # noqa: E402
 from src.data.validate_anomalies import validate_and_detect, upload_to_gcs  # noqa: E402
 from src.utils.gcs import read_parquet_from_gcs  # noqa: E402
 
+sys.path.insert(0, "/opt/airflow")
 
 def run_fred_ingestion(**context: Any) -> None:
     """Run FRED data ingestion."""
@@ -49,6 +48,8 @@ def run_sec_ingestion(**context: Any) -> None:
     os.environ["EXECUTION_DATE"] = execution_date
     os.environ["GCS_BUCKET"] = os.getenv("GCS_BUCKET", "")
     os.environ["SEC_USER_AGENT"] = os.getenv("SEC_USER_AGENT", "")
+    os.environ["SHARD_INDEX"] = str(context.get("shard_index", 0))
+    os.environ["SHARD_TOTAL"] = str(context.get("shard_total", 1))
 
     print(f"Running SEC ingestion for {execution_date}")
     sec_main()
@@ -201,10 +202,16 @@ with DAG(
         python_callable=run_fred_ingestion,
     )
 
-    sec_task = PythonOperator(
-        task_id="run_sec_ingestion",
-        python_callable=run_sec_ingestion,
-    )
+    NUM_SHARDS = int(os.environ.get("SEC_INGEST_SHARDS", "5"))
+
+    sec_tasks = []
+    for i in range(NUM_SHARDS):
+        task = PythonOperator(
+            task_id=f"run_sec_ingestion_shard_{i}",
+            python_callable=run_sec_ingestion,
+            op_kwargs={"shard_index": i, "shard_total": NUM_SHARDS},
+        )
+        sec_tasks.append(task)
 
     preprocess_task = PythonOperator(
         task_id="run_preprocess_ingested_data",
@@ -237,7 +244,7 @@ with DAG(
     )
 
     (
-        [fred_task, sec_task]
+        [fred_task, *sec_tasks]
         >> preprocess_task
         >> bigquery_clean_task
         >> panel_task

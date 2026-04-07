@@ -30,11 +30,11 @@ resource "google_composer_environment" "foresight_ml" {
       }
 
       env_variables = {
-        GCP_PROJECT_ID = var.project_id
-        GCS_BUCKET     = google_storage_bucket.data_lake.name
-        FRED_API_KEY   = var.fred_api_key
-        SEC_USER_AGENT = var.sec_user_agent
-        ENVIRONMENT    = var.environment
+        GCP_PROJECT_ID       = var.project_id
+        FORESIGHT_GCS_BUCKET = google_storage_bucket.data_lake.name
+        FRED_API_KEY         = var.fred_api_key
+        SEC_USER_AGENT       = var.sec_user_agent
+        ENVIRONMENT          = var.environment
       }
 
       # Composer 2 - runs Airflow 2.x
@@ -55,9 +55,6 @@ resource "google_composer_environment" "foresight_ml" {
     # Node configuration for workers
     node_config {
       service_account = google_service_account.composer.email
-
-      disk_size_gb = 30
-      machine_type = var.composer_machine_type
 
       # Network configuration
       network    = "default"

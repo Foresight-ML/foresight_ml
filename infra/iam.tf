@@ -82,3 +82,30 @@ resource "google_bigquery_dataset_iam_member" "dev_bq" {
 resource "google_service_account_key" "dev_key" {
   service_account_id = google_service_account.dev.name
 }
+# Service account for Foresight API
+resource "google_service_account" "api" {
+  account_id   = "foresight-api-${var.environment}"
+  display_name = "Foresight API (${var.environment})"
+  description  = "Service account for Foresight API running on Cloud Run"
+}
+
+# Grant API service account read access to GCS
+resource "google_storage_bucket_iam_member" "api_gcs_read" {
+  bucket = google_storage_bucket.data_lake.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.api.email}"
+}
+
+# Grant API service account access to Secret Manager
+resource "google_project_iam_member" "api_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.api.email}"
+}
+
+# Service account for Foresight Dashboard
+resource "google_service_account" "dashboard" {
+  account_id   = "foresight-dashboard-${var.environment}"
+  display_name = "Foresight Dashboard (${var.environment})"
+  description  = "Service account for Foresight Dashboard running on Cloud Run"
+}

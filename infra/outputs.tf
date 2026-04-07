@@ -78,7 +78,27 @@ output "mlflow_cloudsql_connection_name" {
   value       = var.enable_mlflow ? google_sql_database_instance.mlflow[0].connection_name : ""
 }
 
-# Cloud Run outputs (deprecated - keeping for reference)
+# Foresight API & Dashboard outputs
+output "api_url" {
+  description = "Foresight API service URL on Cloud Run"
+  value       = google_cloud_run_v2_service.api.uri
+}
+
+output "api_service_account_email" {
+  description = "API service account email"
+  value       = google_service_account.api.email
+}
+
+output "dashboard_url" {
+  description = "Foresight Dashboard service URL on Cloud Run"
+  value       = google_cloud_run_v2_service.dashboard.uri
+}
+
+output "dashboard_service_account_email" {
+  description = "Dashboard service account email"
+  value       = google_service_account.dashboard.email
+}
+
 # output "airflow_url" {
 #   description = "Airflow web UI URL (Cloud Run - deprecated)"
 #   value       = google_cloud_run_v2_service.airflow.uri
@@ -93,15 +113,30 @@ output "setup_instructions" {
     1. Save service account key:
        terraform output -raw dev_service_account_key | base64 -d > gcp-key.json
 
-     2. Optional MLflow tracking URI:
-       terraform output -raw mlflow_tracking_uri
+    2. Configure notification channels:
+       - Update alert_email in terraform.tfvars
+       - Add Slack webhook URL to GCP Console Monitoring for the Slack channel
 
-     3. Monitor via Airflow UI:
+    3. Verify Cloud Run services deployed:
+       - API: $(terraform output -raw api_url)
+       - Dashboard: $(terraform output -raw dashboard_url)
+       - Airflow: $(terraform output -raw airflow_url)
+
+    4. Configure Secret Manager:
+       - Set foresight-api-keys secret with actual API keys:
+         gcloud secrets versions add foresight-api-keys --data-file=api_keys.json
+
+    5. Monitor via Airflow UI:
        - DAG runs show in the UI
        - Logs available for each task
        - Data stored in GCS: gs://${google_storage_bucket.data_lake.name}
 
-    4. Query data:
+    6. Query data:
        Open BigQuery console: https://console.cloud.google.com/bigquery?project=${var.project_id}
+
+    7. View monitoring alerts:
+       https://console.cloud.google.com/monitoring/alerting/policies?project=${var.project_id}
+
   EOT
+
 }
