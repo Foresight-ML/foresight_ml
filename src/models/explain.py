@@ -398,7 +398,7 @@ def save_shap_parquet(
     id_cols = ["firm_id", "fiscal_year", "fiscal_period"]
     for col in id_cols:
         if col in eval_df.columns:
-            shap_df.insert(0, col, eval_df[col].values) 
+            shap_df.insert(0, col, eval_df[col].values)
 
     shap_df["top_features_json"] = top_features_json
 
@@ -623,9 +623,13 @@ def get_top_features(cik: str, quarter: str) -> list[dict]:
             return []
 
         top_features_str = filtered_df.iloc[0]["top_features_json"]
-        top_features = json.loads(top_features_str)
+        parsed_top_features = json.loads(top_features_str)
+        if not isinstance(parsed_top_features, list):
+            log.warning("Unexpected top_features_json format for CIK %s in %s", cik, quarter)
+            return []
 
-        return top_features[:3]
+        typed_top_features = [item for item in parsed_top_features if isinstance(item, dict)]
+        return typed_top_features[:3]
 
     except Exception as e:
         log.error(f"Error reading SHAP values from GCS: {e}")
