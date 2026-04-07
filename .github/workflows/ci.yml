@@ -56,6 +56,9 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: make test
 
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v --timeout=60
+
       # --- Added for model phase ---
       - name: Test coverage gate
         env:
