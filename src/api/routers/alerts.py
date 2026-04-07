@@ -5,7 +5,7 @@ from src.api.schemas import AlertsResponse
 router = APIRouter()
 
 @router.get("/alerts", response_model=AlertsResponse)
-def get_high_risk_alerts(threshold: float = 0.7):
+def get_high_risk_alerts(threshold: float = 0.7) -> dict:
     """Mocks high-risk watchlist data for Nandana's dashboard."""
     return {
         "threshold": threshold,
