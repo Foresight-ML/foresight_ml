@@ -59,7 +59,7 @@ DEFAULT_MANIFEST = {
 # ---------------------------------------------------------------------------
 
 
-def _read_gcs_json(uri: str) -> dict | None:  # type: ignore[type-arg]
+def _read_gcs_json(uri: str) -> dict | None:
     """Read a JSON file from GCS. Returns None on any failure."""
     try:
         from google.cloud import storage
@@ -68,7 +68,7 @@ def _read_gcs_json(uri: str) -> dict | None:  # type: ignore[type-arg]
         blob_path = "/".join(uri.replace("gs://", "").split("/")[1:])
         client = storage.Client()
         blob = client.bucket(bucket_name).blob(blob_path)
-        return json.loads(blob.download_as_text())
+        return json.loads(blob.download_as_text())  # type: ignore[no-any-return]
     except Exception as e:
         log.warning("Could not read %s: %s", uri, e)
         return None

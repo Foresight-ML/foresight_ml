@@ -21,25 +21,25 @@ API_BASE_URL = os.getenv(
 API_TIMEOUT = 10  # seconds
 
 
-def _get(endpoint: str, params: dict | None = None) -> dict | None:  # type: ignore[type-arg]
+def _get(endpoint: str, params: dict | None = None) -> dict | None:
     """Make a GET request to the API. Returns None on failure."""
     try:
         url = f"{API_BASE_URL}{endpoint}"
         resp = requests.get(url, params=params, timeout=API_TIMEOUT)
         resp.raise_for_status()
-        return resp.json()
+        return resp.json()  # type: ignore[no-any-return]
     except Exception as e:
         log.warning("API call failed [GET %s]: %s", endpoint, e)
         return None
 
 
-def _post(endpoint: str, payload: dict) -> dict | None:  # type: ignore[type-arg]
+def _post(endpoint: str, payload: dict) -> dict | None:
     """Make a POST request to the API. Returns None on failure."""
     try:
         url = f"{API_BASE_URL}{endpoint}"
         resp = requests.post(url, json=payload, timeout=API_TIMEOUT)
         resp.raise_for_status()
-        return resp.json()
+        return resp.json()  # type: ignore[no-any-return]
     except Exception as e:
         log.warning("API call failed [POST %s]: %s", endpoint, e)
         return None

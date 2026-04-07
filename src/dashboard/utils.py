@@ -7,7 +7,6 @@ quarter utilities, and Plotly chart theming.
 from __future__ import annotations
 
 import json
-
 from typing import Any
 
 import pandas as pd
@@ -90,7 +89,7 @@ def parse_top_features_json(json_str: str) -> list[dict]:
     if pd.isna(json_str) or not json_str:
         return []
     try:
-        return json.loads(json_str)
+        return json.loads(json_str)  # type: ignore[no-any-return]
     except (json.JSONDecodeError, TypeError):
         return []
 
