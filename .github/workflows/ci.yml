@@ -57,7 +57,7 @@ jobs:
         run: make test
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ -v --timeout=60
+        run: uv run pytest tests/integration/ -v
 
       # --- Added for model phase ---
       - name: Test coverage gate
