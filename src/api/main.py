@@ -1,37 +1,67 @@
 """Main FastAPI application setup."""
 
+from typing import AsyncIterator
+
+import logging
+from contextlib import asynccontextmanager
+
+import gcsfs
+import joblib
+import mlflow
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 
-# Import our dependencies and routers
-from src.api.dependencies import limiter
 from src.api.routers import alerts, company, drift, health, predict
 
-# Initialize FastAPI App
+logger = logging.getLogger(__name__)
+
+# This dictionary will hold our loaded model and scaler in memory
+ml_models = {}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Loads the ML model and scaler on startup."""
+    logger.info("Starting up API and loading models...")
+    try:
+        # 1. Load the production model from MLflow
+        model_name = "foresight_xgboost"
+        model_uri = f"models:/{model_name}/Production"
+        ml_models["model"] = mlflow.pyfunc.load_model(model_uri)
+
+        # 2. Load the scaler directly from GCS
+        fs = gcsfs.GCSFileSystem()
+        scaler_path = "financial-distress-data/models/v1.0/scaler_pipeline.pkl"
+        with fs.open(scaler_path, "rb") as f:
+            ml_models["scaler"] = joblib.load(f)
+
+        logger.info("Models loaded successfully!")
+    except Exception as e:
+        logger.error(f"Failed to load models on startup: {e}")
+
+    yield
+    # Clean up when the server shuts down
+    ml_models.clear()
+
+
 app = FastAPI(
     title="Foresight-ML API",
-    description="Serving API for the XGBoost Financial Distress Model",
-    version="1.0.0",
+    description="Inference and monitoring API for the Financial Distress model.",
+    lifespan=lifespan,
 )
 
-# Setup SlowAPI Rate Limiting
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
-
-# Setup CORS so the Streamlit dashboard can communicate with the API
+# Allow the Dashboard to communicate with this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, restrict this to the dashboard URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register all Routers
-app.include_router(predict.router, tags=["Prediction"])
-app.include_router(company.router, tags=["Company Data"])
-app.include_router(alerts.router, tags=["Watchlist Alerts"])
-app.include_router(health.router, tags=["System Health"])
-app.include_router(drift.router, tags=["Model Monitoring"])
+# Connect all the router files
+app.include_router(predict.router)
+app.include_router(company.router)
+app.include_router(alerts.router)
+app.include_router(health.router)
+app.include_router(drift.router)
