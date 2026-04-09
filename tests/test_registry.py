@@ -1,7 +1,9 @@
+import json
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.models.registry import evaluate_and_register_model
+from src.models.registry import evaluate_and_register_model, monitor_model_deletion
 
 
 class TestModelRegistry(unittest.TestCase):
@@ -94,6 +96,38 @@ class TestModelRegistry(unittest.TestCase):
         mock_client.transition_model_version_stage.assert_any_call(
             name="foresight_xgboost", version="3", stage="Production"
         )
+
+    def test_rollback_alert_generation(self):
+        """Verify that monitor_model_deletion correctly writes the rollback alert file."""
+        test_file = "tests/test_rollback_alert.json"
+        
+        # Ensure cleanup before test
+        if os.path.exists(test_file):
+            os.remove(test_file)
+
+        try:
+            # 1. Trigger the monitor function
+            monitor_model_deletion(
+                model_name="foresight_xgboost", 
+                version="1.0", 
+                save_path=test_file
+            )
+
+            # 2. Verify file creation
+            self.assertTrue(os.path.exists(test_file), "Rollback JSON was not created.")
+
+            # 3. Verify file content
+            with open(test_file, "r") as f:
+                data = json.load(f)
+                self.assertEqual(data["model_name"], "foresight_xgboost")
+                self.assertEqual(data["version"], "1.0")
+                self.assertEqual(data["status"], "ROLLBACK_REQUIRED")
+                self.assertIn("alert_timestamp", data)
+
+        finally:
+            # Cleanup after test
+            if os.path.exists(test_file):
+                os.remove(test_file)
 
 
 if __name__ == "__main__":
