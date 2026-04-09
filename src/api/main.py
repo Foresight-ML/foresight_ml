@@ -1,5 +1,7 @@
 """Main FastAPI application setup."""
 
+from typing import AsyncIterator
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,7 +20,7 @@ ml_models = {}
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Loads the ML model and scaler on startup."""
     logger.info("Starting up API and loading models...")
     try:

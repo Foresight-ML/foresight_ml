@@ -35,7 +35,7 @@ def get_valid_api_keys() -> list[str]:
         return ["local-dev-key-123"]
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)):
+async def verify_api_key(api_key: str = Security(api_key_header)) -> str:
     """Validates the incoming API key."""
     valid_keys = get_valid_api_keys()
 

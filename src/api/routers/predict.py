@@ -12,7 +12,7 @@ router = APIRouter(tags=["Prediction"])
 
 
 @router.post("/predict", response_model=PredictResponse)
-async def make_prediction(request: PredictRequest):
+async def make_prediction(request: PredictRequest) -> PredictResponse:
     """Generates a distress probability score for a given company."""
     # WE MOVED IT HERE! This stops the circular import.
     from src.api.main import ml_models

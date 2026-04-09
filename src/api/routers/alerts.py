@@ -15,7 +15,7 @@ router = APIRouter(tags=["Alerts"])
 @router.get("/alerts", response_model=AlertsResponse)
 async def get_high_risk_alerts(
     threshold: float = Query(0.70, description="Minimum distress probability threshold"),
-):
+) -> AlertsResponse:
     """Returns a list of companies currently exceeding the risk threshold."""
     try:
         fs = gcsfs.GCSFileSystem()

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any, cast
 
 import gcsfs
 from fastapi import APIRouter, HTTPException
@@ -11,13 +12,13 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/health")
-async def get_health():
+async def get_health() -> dict[str, str]:
     """Basic health check (exempt from rate limits and auth)."""
     return {"status": "healthy"}
 
 
 @router.get("/model/info")
-async def get_model_info():
+async def get_model_info() -> dict[str, Any]:
     """Reads the latest manifest.json to show current model metadata."""
     try:
         fs = gcsfs.GCSFileSystem()
@@ -26,7 +27,7 @@ async def get_model_info():
         with fs.open(manifest_path, "r") as f:
             manifest_data = json.load(f)
 
-        return manifest_data
+        return cast(dict[str, Any], manifest_data)
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="Manifest file not found.") from None
     except Exception as e:
