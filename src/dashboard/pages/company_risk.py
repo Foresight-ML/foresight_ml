@@ -12,12 +12,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.dashboard.data.gcs_loader import (
-    get_company_history,
-    get_shap_for_company,
+    load_company_history_rows,
     load_company_map,
-    load_labeled_panel,
+    load_panel_firm_ids,
     load_predictions,
-    load_shap_values,
+    load_shap_for_company,
 )
 from src.dashboard.utils import (
     COLORS,
@@ -152,11 +151,14 @@ def render() -> None:
 
     # ── Load data ────────────────────────────────────────────────────
     predictions = load_predictions()
-    panel = load_labeled_panel()
-    shap_df = load_shap_values()
     company_map = load_company_map()
 
-    if predictions.empty and panel.empty:
+    if predictions.empty:
+        panel_firm_ids = load_panel_firm_ids()
+    else:
+        panel_firm_ids = []
+
+    if predictions.empty and not panel_firm_ids:
         st.error(
             "😕 We couldn't load any company data right now. This usually means:\n\n"
             "- The data pipeline hasn't run yet\n"
@@ -174,7 +176,7 @@ def render() -> None:
             icon="✅",
         )
     else:
-        firm_ids = sorted(panel["firm_id"].unique())
+        firm_ids = panel_firm_ids
         data_source = "panel"
         st.warning(
             "No model predictions available. Showing distress labels only. "
@@ -272,7 +274,9 @@ def render() -> None:
             )
             firm_preds = fp.sort_values("sort_key")
 
-    history = get_company_history(panel, selected_firm)
+    history = load_company_history_rows(selected_firm)
+    if not history.empty:
+        history = history.sort_values(["fiscal_year", "fiscal_period"]).copy()
 
     # Determine latest score
     if firm_preds is not None and not firm_preds.empty:
@@ -422,7 +426,7 @@ def render() -> None:
 
     with col_shap:
         st.markdown("#### Top risk drivers")
-        company_shap = get_shap_for_company(shap_df, selected_firm)
+        company_shap = load_shap_for_company(selected_firm)
 
         if not company_shap.empty:
             features = _get_top_shap_features(company_shap, top_n=5)
