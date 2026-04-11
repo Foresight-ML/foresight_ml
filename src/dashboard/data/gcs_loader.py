@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -21,12 +22,12 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # GCS paths — single source of truth
 # ---------------------------------------------------------------------------
-GCS_BUCKET = "financial-distress-data"
+GCS_BUCKET = os.getenv("GCS_BUCKET", "financial-distress-data")
 
-SCORES_URI = f"gs://{GCS_BUCKET}/inference/scores_v1/scores.parquet"
+SCORES_URI = f"gs://{GCS_BUCKET}/inference/scores_v1.0/scores.parquet"
 SHAP_URI = f"gs://{GCS_BUCKET}/shap/shap_values.parquet"
 LABELED_PANEL_URI = f"gs://{GCS_BUCKET}/features/labeled_v1/labeled_panel.parquet"
-MANIFEST_URI = f"gs://{GCS_BUCKET}/inference/scores_v1/manifest.json"
+MANIFEST_URI = f"gs://{GCS_BUCKET}/inference/scores_v1.0/manifest.json"
 OPTUNA_URI = f"gs://{GCS_BUCKET}/models/optuna_results.json"
 DRIFT_SUMMARY_URI = f"gs://{GCS_BUCKET}/monitoring/drift_reports/summary_latest.json"
 SLICE_PERF_URI = f"gs://{GCS_BUCKET}/mlflow/artifacts/slice_metrics/slice_performance.csv"
@@ -74,10 +75,15 @@ def _read_gcs_json(uri: str) -> dict | None:
         return None
 
 
-def _safe_read_parquet(uri: str, label: str = "data") -> pd.DataFrame:
+def _safe_read_parquet(
+    uri: str,
+    label: str = "data",
+    columns: list[str] | None = None,
+    filters: list[tuple[str, str, object]] | None = None,
+) -> pd.DataFrame:
     """Read a parquet file, returning empty DataFrame on failure."""
     try:
-        df = pd.read_parquet(uri)
+        df = pd.read_parquet(uri, columns=columns, filters=filters)
         log.info("Loaded %s: %d rows", label, len(df))
         return df
     except Exception as e:
@@ -102,10 +108,43 @@ def load_shap_values() -> pd.DataFrame:
     return _safe_read_parquet(SHAP_URI, "SHAP values")
 
 
+@st.cache_data(ttl=300, show_spinner="Loading SHAP values...")
+def load_shap_for_company(firm_id: str) -> pd.DataFrame:
+    """Load SHAP rows for a single company to reduce memory pressure."""
+    return _safe_read_parquet(
+        SHAP_URI,
+        f"SHAP values for {firm_id}",
+        filters=[("firm_id", "==", firm_id)],
+    )
+
+
 @st.cache_data(ttl=300, show_spinner="Loading company data...")
 def load_labeled_panel() -> pd.DataFrame:
     """Load the full labeled panel (all company-quarter rows)."""
     return _safe_read_parquet(LABELED_PANEL_URI, "labeled panel")
+
+
+@st.cache_data(ttl=300, show_spinner="Loading company data...")
+def load_company_history_rows(firm_id: str) -> pd.DataFrame:
+    """Load labeled panel rows for a single company to reduce memory pressure."""
+    return _safe_read_parquet(
+        LABELED_PANEL_URI,
+        f"labeled panel for {firm_id}",
+        filters=[("firm_id", "==", firm_id)],
+    )
+
+
+@st.cache_data(ttl=300)
+def load_panel_firm_ids() -> list[str]:
+    """Load distinct firm IDs from panel using only the firm_id column."""
+    panel_ids = _safe_read_parquet(
+        LABELED_PANEL_URI,
+        "panel firm ids",
+        columns=["firm_id"],
+    )
+    if panel_ids.empty or "firm_id" not in panel_ids.columns:
+        return []
+    return sorted(panel_ids["firm_id"].dropna().astype(str).unique().tolist())
 
 
 @st.cache_data(ttl=300, show_spinner="Loading model info...")
@@ -210,7 +249,7 @@ def load_predictions() -> pd.DataFrame:
         features = pd.get_dummies(features, dummy_na=True)
 
         # Align to model's expected columns
-        trained_cols = model.get_booster().feature_names
+        trained_cols = list(model.get_booster().feature_names or [])
         if trained_cols:
             features = features.reindex(columns=trained_cols, fill_value=0)
 
