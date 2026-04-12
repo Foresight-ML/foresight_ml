@@ -17,6 +17,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from evidently import Report
@@ -128,7 +129,7 @@ def run_drift_monitor() -> dict:
         raise RuntimeError("Evidently report object does not support dict export")
     metrics = report_dict.get("metrics", [])
 
-    count_metric = next(
+    count_metric: dict[str, Any] = next(
         (
             m
             for m in metrics
