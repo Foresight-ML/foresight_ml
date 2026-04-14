@@ -23,10 +23,10 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 GCS_BUCKET = "financial-distress-data"
 
-SCORES_URI = f"gs://{GCS_BUCKET}/inference/scores_v1/scores.parquet"
+SCORES_URI = f"gs://{GCS_BUCKET}/inference/scores_v1.0/scores.parquet"
 SHAP_URI = f"gs://{GCS_BUCKET}/shap/shap_values.parquet"
 LABELED_PANEL_URI = f"gs://{GCS_BUCKET}/features/labeled_v1/labeled_panel.parquet"
-MANIFEST_URI = f"gs://{GCS_BUCKET}/inference/scores_v1/manifest.json"
+MANIFEST_URI = f"gs://{GCS_BUCKET}/inference/scores_v1.0/manifest.json"
 OPTUNA_URI = f"gs://{GCS_BUCKET}/models/optuna_results.json"
 DRIFT_SUMMARY_URI = f"gs://{GCS_BUCKET}/monitoring/drift_reports/summary_latest.json"
 SLICE_PERF_URI = f"gs://{GCS_BUCKET}/mlflow/artifacts/slice_metrics/slice_performance.csv"
