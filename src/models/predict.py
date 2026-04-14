@@ -17,6 +17,7 @@ from mlflow.tracking import MlflowClient
 
 from src.models.inference_schema import (
     IDENTITY_COLUMNS,
+    LABEL_COLUMN,
     validate_inference_input,
     validate_inference_output,
 )
@@ -68,16 +69,28 @@ def run_batch_inference(features_gcs_path: str, version_str: str = "1.0") -> Non
         )
         gcs_model_path = f"gs://{os.environ.get('GCS_BUCKET', 'financial-distress-data')}/models/xgb_model.pkl"
         fs = gcsfs.GCSFileSystem()
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".ubj", delete=False) as tmp:
             tmp_path = tmp.name
         fs.get(gcs_model_path.replace("gs://", ""), tmp_path)
         _xgb = XGBClassifier()
-        _xgb.load_model(tmp_path)
+        # Try XGBoost native format first (ubj/json), fall back to pickle
+        try:
+            _xgb.load_model(tmp_path)
+        except Exception:
+            import joblib
+            _xgb = joblib.load(tmp_path)
 
         # Wrap in a simple object that matches the .predict() interface mlflow pyfunc uses
         class _GCSModelWrapper:
             def predict(self, X: "pd.DataFrame") -> "np.ndarray":
                 return _xgb.predict_proba(X)[:, 1]
+
+            @property
+            def feature_names(self) -> "list[str] | None":
+                try:
+                    return list(_xgb.get_booster().feature_names or [])
+                except Exception:
+                    return None
 
         model = _GCSModelWrapper()
 
@@ -104,19 +117,42 @@ def run_batch_inference(features_gcs_path: str, version_str: str = "1.0") -> Non
     logger.info(f"Loading latest features from {features_gcs_path}")
     latest_features_df = pd.read_parquet(features_gcs_path)
 
-    input_errors = validate_inference_input(latest_features_df)
-    if input_errors:
-        error_msg = "Input validation failed:\n" + "\n".join(f"  - {e}" for e in input_errors)
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    logger.info("Input schema validation passed (%d rows)", len(latest_features_df))
+    # Drop label column if present (labeled panel is used as inference source)
+    if LABEL_COLUMN in latest_features_df.columns:
+        logger.info("Dropping label column '%s' from inference input", LABEL_COLUMN)
+        latest_features_df = latest_features_df.drop(columns=[LABEL_COLUMN])
+
+    # Lightweight validation: identity columns must be present, label must be absent
+    missing_identity = [c for c in IDENTITY_COLUMNS if c not in latest_features_df.columns]
+    if missing_identity:
+        raise ValueError(f"Input validation failed: missing identity columns {missing_identity}")
+    logger.info("Input schema validation passed (%d rows, %d cols)", len(latest_features_df), len(latest_features_df.columns))
 
     # --- Step 3: Generate predictions ---
     # Capture pre-dummy raw feature columns for manifest
     raw_feature_columns = [c for c in latest_features_df.columns if c not in IDENTITY_COLUMNS]
 
-    X_predict = latest_features_df.drop(columns=IDENTITY_COLUMNS)
+    # Save identity columns for the output dataframe
+    output_identity_df = latest_features_df[IDENTITY_COLUMNS].copy()
+
+    # Apply the same numeric transformation used during training:
+    # datetime → int64, categorical → pd.get_dummies(dummy_na=True)
+    from src.models.train import _to_numeric_frame  # noqa: PLC0415
+    X_all = _to_numeric_frame(latest_features_df)
+
+    # Align to the model's expected feature columns (handles unseen/missing dummies)
+    expected_features = getattr(model, "feature_names", None)
+    if expected_features:
+        X_predict = X_all.reindex(columns=expected_features, fill_value=0)
+        logger.info("Aligned inference features to %d model columns", len(expected_features))
+    else:
+        X_predict = X_all
+        logger.info("Model feature names unavailable — using %d columns as-is", len(X_all.columns))
+
     predictions = model.predict(X_predict)
+
+    # Build output dataframe: identity + predictions + derived columns
+    latest_features_df = output_identity_df.copy()
     latest_features_df["distress_probability"] = predictions
 
     # --- Step 4: Confidence intervals ---

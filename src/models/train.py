@@ -17,6 +17,9 @@ from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 
 from src.config.settings import settings
+from src.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 DEFAULT_TRAIN_URI = "gs://financial-distress-data/splits/v1/train.parquet"
 DEFAULT_VAL_URI = "gs://financial-distress-data/splits/v1/val.parquet"
@@ -281,6 +284,10 @@ def save_sensitivity_plot(study: Any, out_path: Path) -> None:
     """Save ROC-AUC sensitivity plots for top hyperparameters."""
     import optuna
 
+    if len(study.trials) < 2:
+        logger.warning("Skipping sensitivity plot — need at least 2 Optuna trials, got %d.", len(study.trials))
+        return
+
     importances = optuna.importance.get_param_importances(study)
     top_params = list(importances.keys())[:3]
     trials_df = study.trials_dataframe()
@@ -385,11 +392,26 @@ def main() -> None:
         mlflow.log_params(best_params)
         mlflow.log_metric("test_roc_auc", float(test_roc))
         mlflow.log_metric("baseline_val_roc", float(baseline_roc))
-        mlflow.log_artifact(str(report_path), artifact_path="reports")
-        mlflow.log_artifact(str(plot_path), artifact_path="reports")
+        try:
+            mlflow.log_artifact(str(report_path), artifact_path="reports")
+        except Exception as e:
+            logger.warning("Could not log report artifact to MLflow: %s", e)
+        try:
+            mlflow.log_artifact(str(plot_path), artifact_path="reports")
+        except Exception as e:
+            logger.warning("Could not log plot artifact to MLflow: %s", e)
         # Log the model under the "model" artifact path so registry.py's
-        # source_uri = f"{run.info.artifact_uri}/model" resolves correctly
-        mlflow_xgb.log_model(best_model, artifact_path="model")
+        # source_uri = f"{run.info.artifact_uri}/model" resolves correctly.
+        # Falls back gracefully if the MLflow server version doesn't support
+        # the /logged-models API (introduced in MLflow 3.x).
+        try:
+            mlflow_xgb.log_model(best_model, artifact_path="model")
+        except Exception as e:
+            logger.warning(
+                "mlflow.xgboost.log_model failed (%s). "
+                "Model is still saved to GCS — predict.py will use GCS fallback.",
+                e,
+            )
 
     # Upload artifacts to GCS (kept for backwards compatibility)
     _upload_local_to_gcs(report_path, os.getenv("MODEL_REPORT_URI", DEFAULT_TUNING_REPORT_URI))
