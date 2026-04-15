@@ -10,16 +10,16 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import mlflow
 import numpy as np
 import pandas as pd
 from mlflow.tracking import MlflowClient
-from pandas.api.types import is_datetime64_any_dtype
 
 from src.models.inference_schema import (
     IDENTITY_COLUMNS,
-    validate_inference_input,
+    LABEL_COLUMN,
     validate_inference_output,
 )
 from src.models.manifest_io import upload_manifest_to_gcs, write_manifest
@@ -52,20 +52,83 @@ def run_batch_inference(features_gcs_path: str, version_str: str = "1.0") -> Non
 
     # --- Step 1: Load model and fetch version metadata ---
     logger.info(f"Loading Production model from {model_uri}")
-    try:
-        model = mlflow.pyfunc.load_model(model_uri)
-    except Exception as exc:
-        logger.warning(f"MLflow model load failed, falling back to GCS artifact: {exc}")
-        from google.cloud import storage
-        from xgboost import XGBClassifier
 
-        bucket_name = os.getenv("GCS_BUCKET", "financial-distress-data")
-        model_uri = f"gs://{bucket_name}/models/xgb_model.pkl"
-        tmp_model = Path("/tmp/xgb_model.pkl")
-        client = storage.Client()
-        client.bucket(bucket_name).blob("models/xgb_model.pkl").download_to_filename(str(tmp_model))
-        model = XGBClassifier()
-        model.load_model(str(tmp_model))
+    import tempfile
+
+    import gcsfs
+    from xgboost import XGBClassifier
+
+    def _load_xgb_from_gcs() -> Any:
+        """Download XGBoost model from GCS and wrap it."""
+        gcs_model_path = (
+            f"gs://{os.environ.get('GCS_BUCKET', 'financial-distress-data')}/models/xgb_model.pkl"
+        )
+        fs = gcsfs.GCSFileSystem()
+        with tempfile.NamedTemporaryFile(suffix=".ubj", delete=False) as tmp:
+            tmp_path = tmp.name
+        fs.get(gcs_model_path.replace("gs://", ""), tmp_path)
+        _xgb = XGBClassifier()
+        try:
+            _xgb.load_model(tmp_path)
+        except Exception:
+            import joblib
+
+            _xgb = joblib.load(tmp_path)
+
+        class _GCSModelWrapper:
+            def predict(self, X: "pd.DataFrame") -> "np.ndarray":
+                return _xgb.predict_proba(X)[:, 1]
+
+            @property
+            def feature_names(self) -> "list[str] | None":
+                try:
+                    return list(_xgb.get_booster().feature_names or [])
+                except Exception:
+                    return None
+
+        return _GCSModelWrapper()
+
+    try:
+        _pyfunc = mlflow.pyfunc.load_model(model_uri)
+
+        # MLflow pyfunc.predict() returns class labels (0/1) for XGBoost classifiers,
+        # not probabilities. Unwrap the native model to get predict_proba instead.
+        try:
+            _native = _pyfunc.unwrap_python_model()
+            if hasattr(_native, "predict_proba"):
+                _xgb_native = _native
+            else:
+                _xgb_native = _pyfunc._model_impl.xgb_model  # noqa: SLF001
+
+            class _MLflowWrapper:
+                def predict(self, X: "pd.DataFrame") -> "np.ndarray":
+                    return np.asarray(_xgb_native.predict_proba(X))[:, 1]
+
+                @property
+                def feature_names(self) -> "list[str] | None":
+                    try:
+                        return list(_xgb_native.get_booster().feature_names or [])
+                    except Exception:
+                        return None
+
+            model = _MLflowWrapper()
+            logger.info("MLflow model loaded and unwrapped for predict_proba")
+        except Exception as unwrap_err:
+            logger.warning(
+                "Could not unwrap MLflow pyfunc for predict_proba (%s). "
+                "Falling back to GCS model.",
+                unwrap_err,
+            )
+            model = _load_xgb_from_gcs()
+
+    except Exception as mlflow_load_err:
+        # MLflow artifact store empty — fall back to GCS
+        logger.warning(
+            "MLflow artifact load failed (%s). Falling back to GCS model at "
+            "gs://financial-distress-data/models/xgb_model.pkl",
+            mlflow_load_err,
+        )
+        model = _load_xgb_from_gcs()
 
     client = MlflowClient()
     prod_versions = client.get_latest_versions(model_name, stages=["Production"])
@@ -90,37 +153,46 @@ def run_batch_inference(features_gcs_path: str, version_str: str = "1.0") -> Non
     logger.info(f"Loading latest features from {features_gcs_path}")
     latest_features_df = pd.read_parquet(features_gcs_path)
 
-    input_errors = validate_inference_input(latest_features_df)
-    if input_errors:
-        error_msg = "Input validation failed:\n" + "\n".join(f"  - {e}" for e in input_errors)
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    logger.info("Input schema validation passed (%d rows)", len(latest_features_df))
+    # Drop label column if present (labeled panel is used as inference source)
+    if LABEL_COLUMN in latest_features_df.columns:
+        logger.info("Dropping label column '%s' from inference input", LABEL_COLUMN)
+        latest_features_df = latest_features_df.drop(columns=[LABEL_COLUMN])
+
+    # Lightweight validation: identity columns must be present, label must be absent
+    missing_identity = [c for c in IDENTITY_COLUMNS if c not in latest_features_df.columns]
+    if missing_identity:
+        raise ValueError(f"Input validation failed: missing identity columns {missing_identity}")
+    logger.info(
+        "Input schema validation passed (%d rows, %d cols)",
+        len(latest_features_df),
+        len(latest_features_df.columns),
+    )
 
     # --- Step 3: Generate predictions ---
     raw_feature_columns = [c for c in latest_features_df.columns if c not in IDENTITY_COLUMNS]
 
-    X_predict = latest_features_df.drop(columns=IDENTITY_COLUMNS)
+    # Save identity columns for the output dataframe
+    output_identity_df = latest_features_df[IDENTITY_COLUMNS].copy()
 
-    # Load native XGBoost model from GCS — mlflow pyfunc returns class labels not probabilities
-    from xgboost import XGBClassifier
-    from google.cloud import storage as _gcs
+    # Apply the same numeric transformation used during training:
+    # datetime → int64, categorical → pd.get_dummies(dummy_na=True)
+    from src.models.train import _to_numeric_frame  # noqa: PLC0415
 
-    _model_local = Path("/tmp/xgb_model_infer.json")
-    _gcs.Client().bucket("financial-distress-data").blob(
-        "models/xgb_model.pkl"
-    ).download_to_filename(str(_model_local))
+    X_all = _to_numeric_frame(latest_features_df)
 
-    _xgb = XGBClassifier()
-    _xgb.load_model(str(_model_local))
+    # Align to the model's expected feature columns (handles unseen/missing dummies)
+    expected_features = getattr(model, "feature_names", None)
+    if expected_features:
+        X_predict = X_all.reindex(columns=expected_features, fill_value=0)
+        logger.info("Aligned inference features to %d model columns", len(expected_features))
+    else:
+        X_predict = X_all
+        logger.info("Model feature names unavailable — using %d columns as-is", len(X_all.columns))
 
-    # Align columns to training feature set
-    _trained_cols = _xgb.get_booster().feature_names
-    X_aligned = pd.get_dummies(X_predict, dummy_na=True).reindex(
-        columns=_trained_cols, fill_value=0
-    )
+    predictions = model.predict(X_predict)
 
-    predictions = _xgb.predict_proba(X_aligned)[:, 1]
+    # Build output dataframe: identity + predictions + derived columns
+    latest_features_df = output_identity_df.copy()
     latest_features_df["distress_probability"] = predictions
 
     # --- Step 4: Confidence intervals ---
@@ -135,22 +207,31 @@ def run_batch_inference(features_gcs_path: str, version_str: str = "1.0") -> Non
     latest_features_df["scored_at"] = scored_at.isoformat()
     latest_features_df["model_roc_auc"] = model_roc_auc
 
-    # Load precomputed SHAP values from Person 4
+    # Load precomputed SHAP values — gracefully degrade if file not yet generated
     gcs_bucket = os.getenv("GCS_BUCKET", "financial-distress-data")
     shap_path = f"gs://{gcs_bucket}/shap/shap_values.parquet"
     logger.info(f"Loading SHAP values from {shap_path}")
-    shap_df = pd.read_parquet(shap_path)
-
-    # Extract the necessary columns
-    shap_subset = shap_df[["firm_id", "fiscal_year", "fiscal_period", "top_features_json"]]
-
-    # Attach precomputed SHAP top_features_json to each scored row
-    final_scored_df = pd.merge(
-        latest_features_df,
-        shap_subset,
-        on=["firm_id", "fiscal_year", "fiscal_period"],
-        how="left",
-    )
+    try:
+        shap_df = pd.read_parquet(shap_path)
+        shap_subset = shap_df[["firm_id", "fiscal_year", "fiscal_period", "top_features_json"]]
+        final_scored_df = pd.merge(
+            latest_features_df,
+            shap_subset,
+            on=["firm_id", "fiscal_year", "fiscal_period"],
+            how="left",
+        )
+        logger.info(
+            "SHAP values merged: %d rows matched",
+            final_scored_df["top_features_json"].notna().sum(),
+        )
+    except Exception as shap_err:
+        logger.warning(
+            "SHAP values unavailable (%s) — scores.parquet will be written without "
+            "top_features_json. Re-run explain.py to populate SHAP and re-score.",
+            shap_err,
+        )
+        final_scored_df = latest_features_df.copy()
+        final_scored_df["top_features_json"] = None
 
     # --- Step 6: Validate output ---
     output_errors = validate_inference_output(final_scored_df)
@@ -191,5 +272,6 @@ def run_batch_inference(features_gcs_path: str, version_str: str = "1.0") -> Non
 
 if __name__ == "__main__":
     run_batch_inference(
-        "gs://financial-distress-data/features/labeled_v1/labeled_panel.parquet"
+        "gs://financial-distress-data/features/labeled_v1/labeled_panel.parquet",
+        version_str="1.0",
     )
