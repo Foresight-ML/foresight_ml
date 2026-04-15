@@ -41,7 +41,7 @@ LOCAL_COMPANY_REF = Path("artifacts/reference/companies.csv")
 # Default manifest when GCS is unavailable
 DEFAULT_MANIFEST = {
     "schema_version": "1.0",
-    "model_name": "foresight-xgboost",
+    "model_name": "foresight_xgboost",
     "model_version": "v1",
     "mlflow_run_id": "pending",
     "trained_at": "2026-03-15T10:00:00+00:00",
@@ -203,11 +203,12 @@ def load_predictions() -> pd.DataFrame:
     try:
         df = pd.read_parquet(SCORES_URI)
         if "distress_probability" in df.columns:
-            log.info("Loaded batch scores: %d rows", len(df))
-            return df
+            if df["distress_probability"].sum() > 0:
+                log.info("Loaded batch scores: %d rows", len(df))
+                return df
+            log.warning("GCS scores are all zero — falling back to local scoring")
     except Exception:
         pass
-
     # 2/3. Live scoring fallback
     try:
         import tempfile
@@ -241,13 +242,15 @@ def load_predictions() -> pd.DataFrame:
         id_cols = ["firm_id", "fiscal_year", "fiscal_period"]
         ids = test_df[id_cols].copy()
 
-        # Prepare features
-        features = test_df.drop(columns=[label_col])
-        for col in features.columns:
-            if is_datetime64_any_dtype(features[col]):
-                features[col] = features[col].astype("int64")
+        # Prepare features — drop non-numeric columns
+        drop_cols = [label_col] + [
+            c for c in test_df.columns
+            if c in id_cols
+            or test_df[c].dtype == "object"
+            or is_datetime64_any_dtype(test_df[c])
+        ]
+        features = test_df.drop(columns=[c for c in drop_cols if c in test_df.columns])
         features = pd.get_dummies(features, dummy_na=True)
-
         # Align to model's expected columns
         trained_cols = list(model.get_booster().feature_names or [])
         if trained_cols:
@@ -280,28 +283,34 @@ def load_predictions() -> pd.DataFrame:
 def load_company_map() -> pd.DataFrame:
     """Load company name/ticker/CIK mapping.
 
-    Tries local SEC company names file first, falls back to reference CSV.
+    Tries local files first, then GCS.
     Returns DataFrame with columns: firm_id, ticker, name.
     """
     empty = pd.DataFrame(columns=["firm_id", "ticker", "name"])
-
     try:
         if LOCAL_COMPANY_NAMES.exists():
             df = pd.read_csv(LOCAL_COMPANY_NAMES, dtype={"cik": str})
         elif LOCAL_COMPANY_REF.exists():
             df = pd.read_csv(LOCAL_COMPANY_REF)
             df["cik"] = df["cik"].astype(str)
-            df["name"] = df["ticker"]  # fallback: use ticker as name
+            df["name"] = df["ticker"]
         else:
-            return empty
-
+            # Try GCS
+            try:
+                df = pd.read_csv(f"gs://{GCS_BUCKET}/reference/company_names.csv", dtype={"cik": str})
+            except Exception:
+                try:
+                    df = pd.read_csv(f"gs://{GCS_BUCKET}/reference/companies.csv")
+                    df["cik"] = df["cik"].astype(str)
+                    df["name"] = df["ticker"]
+                except Exception:
+                    return empty
         df["firm_id"] = df["cik"].str.zfill(10)
         log.info("Loaded %d company mappings", len(df))
         return df[["firm_id", "ticker", "name"]]
     except Exception as e:
         log.warning("Company map not available: %s", e)
         return empty
-
 
 # ---------------------------------------------------------------------------
 # Query helpers
